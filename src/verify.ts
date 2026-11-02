@@ -6,8 +6,8 @@ import { existsSync, readFileSync, rmSync, writeFileSync, renameSync } from 'nod
 import { join } from 'node:path';
 import { findDeskCalc, exchangeDir, launchVerify } from './deskcalc.js';
 import {
-  buildJob, parseResult, diffLines, decimalSum, sameAmount, normaliseValue, cleanLabel,
-  MAX_LINES, type Item, type Correction, type DeskCalcResult,
+  buildJob, parseResult, diffLines, decimalSum, decimalMul, sameAmount, normaliseValue, cleanLabel,
+  checkDocument, MAX_LINES, type Item, type Correction, type DeskCalcResult, type ResultLine, type Check,
 } from './protocol.js';
 
 export const ACK_TIMEOUT_MS = Number(process.env.DESKCALC_ACK_TIMEOUT_MS ?? 15000);
@@ -24,8 +24,9 @@ export interface Outcome {
   review_id?: string;
   message: string;
   total?: string;
-  lines?: { label: string; value: string; op?: string }[];
+  lines?: ResultLine[];
   corrections?: Correction[];
+  document_check?: { ok: boolean; checks: Check[] };
   confirmed_by_user?: boolean;
   problem?: { line?: number; value?: string };
   warnings?: string[];
@@ -36,6 +37,7 @@ interface Review {
   base: string;
   title: string;
   sent: Item[];
+  expectedTotal?: string;
   started: number;
   acked: boolean;
   final?: Outcome;
@@ -76,20 +78,30 @@ function fromResult(r: Review, res: DeskCalcResult): Outcome {
     const warnings: string[] = [];
     if (res.notes.includes('labels_truncated')) warnings.push('Some labels were longer than 60 characters and were shortened.');
     if ((res.calculations ?? 1) > 1) warnings.push('The user split the tape into several calculations; total is the last calculation shown by DeskCalc.');
-    const plain = res.lines.every(l => !l.op);
+    const plain = res.lines.every(l => !l.op);   // tax and qty lines carry their signed amount
     if (plain && res.total !== undefined && res.lines.length > 0) {
       const sum = decimalSum(res.lines.map(l => l.value));
       if (!sameAmount(sum, res.total)) warnings.push(`Sum of the confirmed lines (${sum}) differs from the DeskCalc total (${res.total}). Ask the user before relying on it.`);
     }
     const corrections = diffLines(r.sent, res.lines);
+    const checks = checkDocument(r.sent, res.lines, res.total, r.expectedTotal);
+    const bad = checks.filter(c => !c.ok);
+    let message = corrections.length
+      ? `The user checked the tape in DeskCalc, made ${corrections.length} correction(s) and pressed Confirm. Use the total below.`
+      : 'The user checked every line in DeskCalc and pressed Confirm without changes. Use the total below.';
+    if (checks.length) {
+      message += bad.length
+        ? ` Document check: ${bad.length} of ${checks.length} figure(s) do NOT match the confirmed tape - report them to the user: ` +
+          bad.map(c => `${c.check}: document ${c.document}, DeskCalc ${c.deskcalc} (difference ${c.difference})`).join('; ') + '.'
+        : ` Document check: all ${checks.length} printed figure(s) match the confirmed tape to the cent.`;
+    }
     return {
       status: 'confirmed',
-      message: corrections.length
-        ? `The user checked the tape in DeskCalc, made ${corrections.length} correction(s) and pressed Confirm. Use the total below.`
-        : 'The user checked every line in DeskCalc and pressed Confirm without changes. Use the total below.',
+      message,
       total: res.total,
       lines: res.lines,
       corrections,
+      ...(checks.length ? { document_check: { ok: bad.length === 0, checks } } : {}),
       confirmed_by_user: true,
       ...(warnings.length ? { warnings } : {}),
     };
@@ -140,10 +152,47 @@ async function waitFor(r: Review, waitS: number, hooks: WaitHooks): Promise<Outc
   }
 }
 
+export interface VerifyItemInput {
+  type?: 'amount' | 'tax';
+  label?: string;
+  value?: number | string;      // amount; with qty/price: the printed line total; tax: the printed tax amount
+  qty?: number | string;
+  price?: number | string;
+  rate?: number | string;       // tax rate in %
+  included?: boolean;           // tax contained in the amounts above (gross prices)
+}
+
 export interface VerifyInput {
   title: string;
-  items: { value: number | string; label?: string }[];
+  items: VerifyItemInput[];
+  expected_total?: number | string;
   wait_seconds?: number;
+}
+
+function toItem(x: VerifyItemInput, line: number): Item | { error: string } {
+  const label = cleanLabel(x.label);
+  const num = (v: unknown, what: string) => {
+    const n = normaliseValue(v);
+    return n.ok ? n.value : { error: `Line ${line}: ${what} ${n.error}` };
+  };
+  if (x.type === 'tax' || x.rate !== undefined) {
+    const rate = num(x.rate, 'rate');
+    if (typeof rate !== 'string') return rate;
+    if (!(Number(rate) > 0 && Number(rate) < 100)) return { error: `Line ${line}: tax rate must be between 0 and 100 (percent).` };
+    let printed: string | undefined;
+    if (x.value !== undefined) { const p = num(x.value, 'value'); if (typeof p !== 'string') return p; printed = p; }
+    return { kind: 'tax', label, value: '', rate, included: !!x.included, printed };
+  }
+  if (x.qty !== undefined || x.price !== undefined) {
+    const qty = num(x.qty, 'qty'); if (typeof qty !== 'string') return qty;
+    const price = num(x.price, 'price'); if (typeof price !== 'string') return price;
+    if (!(Number(qty) > 0)) return { error: `Line ${line}: qty must be greater than 0.` };
+    let printed: string | undefined;
+    if (x.value !== undefined) { const p = num(x.value, 'value'); if (typeof p !== 'string') return p; printed = p; }
+    return { kind: 'qty', label, qty, price, value: decimalMul(qty, price), printed };
+  }
+  const value = num(x.value, 'value'); if (typeof value !== 'string') return value;
+  return { kind: 'amount', label, value };
 }
 
 export async function verifyNumbers(input: VerifyInput, hooks: WaitHooks = {}): Promise<Outcome> {
@@ -161,9 +210,17 @@ export async function verifyNumbers(input: VerifyInput, hooks: WaitHooks = {}): 
 
   const items: Item[] = [];
   for (let i = 0; i < input.items.length; i++) {
-    const v = normaliseValue(input.items[i].value);
-    if (!v.ok) return { status: 'bad_request', message: `Line ${i + 1}: ${v.error}`, problem: { line: i + 1 } };
-    items.push({ value: v.value, label: cleanLabel(input.items[i].label) });
+    const it = toItem(input.items[i], i + 1);
+    if ('error' in it) return { status: 'bad_request', message: it.error, problem: { line: i + 1 } };
+    if (it.kind === 'tax' && !items.some(x => x.kind !== 'tax'))
+      return { status: 'bad_request', message: `Line ${i + 1}: a tax line needs the taxable lines above it.`, problem: { line: i + 1 } };
+    items.push(it);
+  }
+  let expectedTotal: string | undefined;
+  if (input.expected_total !== undefined) {
+    const e = normaliseValue(input.expected_total);
+    if (!e.ok) return { status: 'bad_request', message: `expected_total: ${e.error}` };
+    expectedTotal = e.value;
   }
 
   const dc = findDeskCalc();
@@ -177,7 +234,7 @@ export async function verifyNumbers(input: VerifyInput, hooks: WaitHooks = {}): 
   writeFileSync(base + '.xml.tmp', job.bytes);
   renameSync(base + '.xml.tmp', base + '.xml');
 
-  const r: Review = { id, base, title: cleanLabel(input.title) || 'Verify', sent: items, started: Date.now(), acked: false };
+  const r: Review = { id, base, title: cleanLabel(input.title) || 'Verify', sent: items, expectedTotal, started: Date.now(), acked: false };
   reviews.set(id, r);
   active = r;
   launchVerify(dc.path, base + '.xml');

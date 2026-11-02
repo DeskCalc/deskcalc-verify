@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { encodeCp1252, decodeCp1252 } from '../src/cp1252.js';
-import { normaliseValue, buildJob, parseResult, diffLines, decimalSum, cleanLabel } from '../src/protocol.js';
+import { normaliseValue, buildJob, parseResult, diffLines, decimalSum, decimalMul, roundCents, cleanLabel, checkDocument, type Item } from '../src/protocol.js';
 
 describe('cp1252', () => {
   it('round-trips €, umlauts and quotes', () => {
@@ -35,7 +35,7 @@ describe('normaliseValue', () => {
 
 describe('job and result', () => {
   it('builds an escaped windows-1252 job', () => {
-    const job = buildJob('ab12', 'Spesen <Okt>', [{ value: '12.3', label: 'A & B "x"' }]);
+    const job = buildJob('ab12', 'Spesen <Okt>', [{ kind: 'amount', value: '12.3', label: 'A & B "x"' }]);
     const xml = decodeCp1252(job.bytes);
     expect(xml).toContain('encoding="windows-1252"');
     expect(xml).toContain('<TITLE>Spesen &lt;Okt&gt;</TITLE>');
@@ -69,14 +69,14 @@ describe('decimalSum', () => {
 });
 
 describe('diffLines', () => {
-  const sent = [
-    { value: '45.8', label: 'Shell' },
-    { value: '189', label: 'Hotel' },
-    { value: '-20', label: 'Gutschrift' },
-    { value: '12.3', label: 'Parken' },
+  const sent: Item[] = [
+    { kind: 'amount', value: '45.8', label: 'Shell' },
+    { kind: 'amount', value: '189', label: 'Hotel' },
+    { kind: 'amount', value: '-20', label: 'Gutschrift' },
+    { kind: 'amount', value: '12.3', label: 'Parken' },
   ];
   it('finds no corrections for an unchanged tape', () => {
-    expect(diffLines(sent, sent)).toEqual([]);
+    expect(diffLines(sent, sent.map(x => ({ value: x.value, label: x.label })))).toEqual([]);
   });
   it('detects changed, added, removed and relabelled lines', () => {
     const got = [
@@ -93,6 +93,52 @@ describe('diffLines', () => {
     ]);
   });
   it('treats 189 and 189.00 as the same value', () => {
-    expect(diffLines([{ value: '189.00', label: 'a' }], [{ value: '189', label: 'a' }])).toEqual([]);
+    expect(diffLines([{ kind: 'amount', value: '189.00', label: 'a' }], [{ value: '189', label: 'a' }])).toEqual([]);
+  });
+});
+
+describe('invoice support', () => {
+  const invoice: Item[] = [
+    { kind: 'qty', label: 'Pos.1 Wandfarbe', qty: '3', price: '42.01', value: '126.03', printed: '126.03' },
+    { kind: 'qty', label: 'Pos.2 Schrauben', qty: '2', price: '12.50', value: '25', printed: '25.00' },
+    { kind: 'amount', label: 'Pos.4 Versand', value: '35' },
+    { kind: 'tax', label: 'USt 19 %', value: '', rate: '19', printed: '35.35' },
+  ];
+  const got = [
+    { value: '126.03', label: 'Pos.1 Wandfarbe', qty: '3', price: '42.01' },
+    { value: '25', label: 'Pos.2 Schrauben', qty: '2', price: '12.5' },
+    { value: '35', label: 'Pos.4 Versand' },
+    { value: '35.3514', label: 'USt 19 %', type: 'tax' as const, rate: '19', included: false, base: '186.06' },
+  ];
+  it('rounds and multiplies exactly', () => {
+    expect(roundCents('348.1107')).toBe('348.11');
+    expect(roundCents('55.585')).toBe('55.59');
+    expect(roundCents('-20')).toBe('-20.00');
+    expect(roundCents('1.4e-7')).toBe('0.00');
+    expect(decimalMul('3', '42.01')).toBe('126.03');
+    expect(decimalMul('15', '7.1')).toBe('106.5');
+  });
+  it('writes qty and tax lines into the job', () => {
+    const xml = decodeCp1252(buildJob('x', 't', invoice).bytes);
+    expect(xml).toContain('<LINE value="42.01" qty="3" label="Pos.1 Wandfarbe"/>');
+    expect(xml).toContain('<LINE type="tax" rate="19" incl="0" label="USt 19 %"/>');
+  });
+  it('parses tax and qty attributes', () => {
+    const r = parseResult(Buffer.from('<VERIFY_RESULT status="confirmed"><TOTAL>221.4507</TOTAL><LINE value="126.03" label="a" qty="3" price="42.01"/><LINE value="35.3507" label="t" type="tax" rate="19" incl="0" base="186.06"/></VERIFY_RESULT>'));
+    expect(r.lines[0]).toMatchObject({ qty: '3', price: '42.01' });
+    expect(r.lines[1]).toMatchObject({ type: 'tax', rate: '19', included: false, base: '186.06' });
+  });
+  it('does not count a recomputed tax amount as a correction', () => {
+    expect(diffLines(invoice, got)).toEqual([]);
+  });
+  it('checks printed figures to the cent', () => {
+    expect(checkDocument(invoice, got, '221.4114', '221.41').map(c => c.ok)).toEqual([true, true, true, true]);
+    const wrong = checkDocument(invoice, got, '221.4114', '222.00');
+    expect(wrong[3]).toMatchObject({ check: 'total', ok: false, document: '222.00', deskcalc: '221.41', difference: '-0.59' });
+  });
+  it('compares an included-tax total with the gross amount', () => {
+    const items: Item[] = [{ kind: 'amount', label: 'a', value: '120' }, { kind: 'tax', label: 't', value: '', rate: '20', included: true, printed: '20.00' }];
+    const g2 = [{ value: '120', label: 'a' }, { value: '-20', label: 't', type: 'tax' as const, rate: '20', included: true, base: '120' }];
+    expect(checkDocument(items, g2, '100', '120.00').every(c => c.ok)).toBe(true);
   });
 });

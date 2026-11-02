@@ -48,18 +48,33 @@ server.registerTool(
   {
     title: 'Check numbers in DeskCalc',
     description:
-      'Show a list of numbers as a labelled adding-machine tape in DeskCalc so the user can check every line, ' +
-      'correct it and press Confirm. Returns the confirmed total, the lines and any corrections. ' +
-      'Use it before you rely on a sum you extracted from documents. If the result is "pending", tell the user ' +
-      'to finish the check in DeskCalc and call get_verification with the review_id. ' +
-      'Values: plain numbers with "." as decimal separator (negative for credits/refunds). ' +
-      'Labels: short source references such as date and payee, e.g. "14.10. Hotel Ibis".',
+      'Show numbers as a labelled adding-machine tape in DeskCalc so the user can check every line, correct it ' +
+      'and press Confirm. Returns the confirmed total, the lines, the user\'s corrections and - if you pass the ' +
+      'printed figures - a cent-exact check of the document. Use it before you rely on a sum you extracted from ' +
+      'receipts, statements or invoices. If the result is "pending", tell the user to finish the check in DeskCalc ' +
+      'and call get_verification with the review_id.\n' +
+      'Line kinds: (1) amount: {label, value}. (2) quantity x unit price: {label, qty, price, value?} - value is the ' +
+      'printed line total, checked against qty x price. (3) VAT/sales tax: {type:"tax", rate, included?, value?} - ' +
+      'put it after the taxable lines; DeskCalc computes the tax from the subtotal above and recomputes it when the ' +
+      'user corrects a line; value is the printed tax amount; included=true for gross prices ("incl. VAT"). ' +
+      'For invoices also pass expected_total (the printed amount payable).\n' +
+      'Numbers: plain, "." as decimal separator, negative for credits. Labels: SHORT, max ~25 characters, ' +
+      'e.g. "Pos.1 Wandfarbe" or "14.10. Hotel" - longer labels are cut off on the tape. Title: 1-3 words; it ' +
+      'becomes the tab name in DeskCalc.',
     inputSchema: {
-      title: z.string().min(1).max(60).describe('Short name for the tape, e.g. "Expenses October".'),
+      title: z.string().min(1).max(60).describe('Short tab name, e.g. "Baumarkt 10/26" or "Spesen Oktober".'),
       items: z.array(z.object({
-        value: z.union([z.number(), z.string()]).describe('Amount, e.g. 189.00 or "-20.50".'),
-        label: z.string().max(200).optional().describe('Where the number comes from (max 60 characters are kept).'),
-      })).min(1).max(500).describe('The lines in order.'),
+        type: z.enum(['amount', 'tax']).optional().describe('"tax" for a VAT/sales-tax line; default amount.'),
+        label: z.string().max(200).optional().describe('Short source reference, max ~25 characters.'),
+        value: z.union([z.number(), z.string()]).optional()
+          .describe('Amount. With qty/price: the printed line total (for the check). With type "tax": the printed tax amount (for the check).'),
+        qty: z.union([z.number(), z.string()]).optional().describe('Quantity (with price).'),
+        price: z.union([z.number(), z.string()]).optional().describe('Unit price (with qty).'),
+        rate: z.union([z.number(), z.string()]).optional().describe('Tax rate in percent, e.g. 19 or 20 (type "tax").'),
+        included: z.boolean().optional().describe('Tax is included in the amounts above (gross prices). Default false (tax added on top).'),
+      })).min(1).max(500).describe('The lines in document order.'),
+      expected_total: z.union([z.number(), z.string()]).optional()
+        .describe('The printed total / amount payable of the document, checked to the cent against the confirmed tape.'),
       wait_seconds: waitSchema,
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },

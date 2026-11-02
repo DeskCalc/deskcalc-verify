@@ -106,6 +106,44 @@ describe('deskcalc-verify over MCP', () => {
     await c.close();
   });
 
+  it('checks an invoice with qty x price, tax and expected total', async () => {
+    const invoice = {
+      title: 'Baumarkt',
+      items: [
+        { label: 'Pos.1 Wandfarbe', qty: 3, price: 42.01, value: 126.03 },
+        { label: 'Pos.2 Schrauben', qty: 2, price: 12.5, value: 25 },
+        { label: 'Pos.3 Gipskarton', qty: 15, price: 7.1, value: 106.5 },
+        { label: 'Pos.4 Versand', value: 35 },
+        { type: 'tax', rate: 19, label: 'USt 19 %', value: 55.58 },
+      ],
+      expected_total: 348.11,
+    };
+    const c = await connect({ FAKE_MODE: 'confirm' });
+    const r = await call(c, 'verify_numbers', invoice);
+    expect(r.status).toBe('confirmed');
+    expect(r.document_check.ok).toBe(true);
+    expect(r.document_check.checks).toHaveLength(5);
+    expect(r.corrections).toEqual([]);
+    await c.close();
+
+    // The user corrects a quantity: DeskCalc recomputes the tax, the check reports the differences.
+    const c2 = await connect({ FAKE_MODE: 'edit_qty' });
+    const r2 = await call(c2, 'verify_numbers', invoice);
+    expect(r2.corrections.map((x: any) => x.type)).toEqual(['changed']);
+    expect(r2.document_check.ok).toBe(false);
+    const bad = r2.document_check.checks.filter((x: any) => !x.ok).map((x: any) => x.check.split(' ')[0]);
+    expect(bad).toEqual(['tax', 'total']);
+    expect(r2.message).toMatch(/do NOT match/);
+    await c2.close();
+  });
+
+  it('rejects a tax line without lines above', async () => {
+    const c = await connect({});
+    const r = await call(c, 'verify_numbers', { title: 'x', items: [{ type: 'tax', rate: 19 }] });
+    expect(r.status).toBe('bad_request');
+    await c.close();
+  });
+
   it('reports a missing DeskCalc', async () => {
     const c = await connect({ DESKCALC_PATH: join(dir, 'nope.exe') });
     const r = await call(c, 'verify_numbers', { title: 'x', items });
