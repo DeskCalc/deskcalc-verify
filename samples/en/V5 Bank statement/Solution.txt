@@ -1,0 +1,9 @@
+V5 Bank statement with carry-overs - solution
+
+Attach "Bank statement 10-2026 Sample Bank.pdf", prompt "Check a statement with carry-overs".
+The opening balance 42,480.35 is an amount line, the carried-forward balances are checkpoints (subtotal).
+
+Expected:
+  Carried forward page 1: printed 36,134.78 = correct -> ok
+  Carried forward page 2: printed 28,522.36, correct 28,532.36 -> difference -10.00 (first error)
+  Closing balance:        printed 13,692.56, correct 13,702.56 -> follows from above (same difference)

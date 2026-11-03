@@ -3,6 +3,8 @@
 //           amount:   <LINE value="35" label=".."/>
 //           qty:      <LINE value="42.01" qty="3" label=".."/>     (unit price x quantity)
 //           tax:      <LINE type="tax" rate="19" incl="0|1" label=".."/>
+//           subtotal: <LINE type="subtotal" label="Übertrag S.1"/>  checkpoint: a "#" line that
+//                     shows the running total; DeskCalc returns it with the running value
 //           group:    <LINE type="group" label="20 %"/>  starts a block (own calculation on the
 //                     tape; tax/percent apply within the block; several blocks -> GT line)
 //           percent:  <LINE type="percent" rate="-3" label=".."/>  (discount -, surcharge +,
@@ -20,7 +22,7 @@ import { encodeCp1252, decodeCp1252, type Encoded } from './cp1252.js';
 export const MAX_LINES = 500;
 export const MAX_LABEL = 60;
 
-export type ItemKind = 'amount' | 'qty' | 'tax' | 'percent' | 'group';
+export type ItemKind = 'amount' | 'qty' | 'tax' | 'percent' | 'group' | 'subtotal';
 
 export interface Item {
   kind: ItemKind;
@@ -31,6 +33,9 @@ export interface Item {
   rate?: string;         // tax rate in %, or percent (negative = discount)
   included?: boolean;    // tax contained in the gross amounts above ("inkl.")
   printed?: string;      // what the document says (line total, tax or discount amount), for the check
+  net?: string;          // cross-footing input: printed net and tax of this row (value = gross)
+  tax?: string;
+  row?: 'group' | 'net' | 'tax' | 'gross';   // part of a cross-footed row (one block per row)
 }
 
 export interface ResultLine {
@@ -39,7 +44,7 @@ export interface ResultLine {
   op?: string;
   qty?: string;
   price?: string;
-  type?: 'tax' | 'percent';
+  type?: 'tax' | 'percent' | 'subtotal';   // subtotal: value = running total there, not added
   rate?: string;
   included?: boolean;
   base?: string;
@@ -48,6 +53,7 @@ export interface ResultLine {
 
 export interface DeskCalcResult {
   status: string;
+  lang?: 'de' | 'en';      // DeskCalc's UI language (DeskCalc 11.3+)
   total?: string;
   calculations?: number;
   lines: ResultLine[];
@@ -149,6 +155,7 @@ export function buildJob(id: string, title: string, items: Item[], replace?: str
   for (const it of items) {
     const label = `label="${xmlEscape(it.label)}"`;
     if (it.kind === 'group') xml += `<LINE type="group" ${label}/>\r\n`;
+    else if (it.kind === 'subtotal') xml += `<LINE type="subtotal" ${label}/>\r\n`;
     else if (it.kind === 'tax') xml += `<LINE type="tax" rate="${it.rate}" incl="${it.included ? 1 : 0}" ${label}/>\r\n`;
     else if (it.kind === 'percent') xml += `<LINE type="percent" rate="${it.rate}" ${label}/>\r\n`;
     else if (it.kind === 'qty') xml += `<LINE value="${it.price}" qty="${it.qty}" ${label}/>\r\n`;
@@ -170,6 +177,8 @@ export function parseResult(bytes: Uint8Array): DeskCalcResult {
   const root = /<VERIFY_RESULT\b[^>]*>/.exec(xml);
   if (!root) throw new Error('not a DeskCalc result file');
   const res: DeskCalcResult = { status: attr(root[0], 'status') ?? 'unknown', lines: [], notes: [] };
+  const lang = attr(root[0], 'lang');
+  if (lang === 'de' || lang === 'en') res.lang = lang;
   const total = /<TOTAL>([^<]*)<\/TOTAL>/.exec(xml);
   if (total) res.total = plain(total[1].trim());
   const calcs = /<CALCULATIONS>(\d+)<\/CALCULATIONS>/.exec(xml);
@@ -185,6 +194,7 @@ export function parseResult(bytes: Uint8Array): DeskCalcResult {
     if (block !== undefined) line.block = Number(block);
     if (attr(t, 'type') === 'tax') { line.type = 'tax'; line.included = attr(t, 'incl') === '1'; }
     else if (attr(t, 'type') === 'percent') line.type = 'percent';
+    else if (attr(t, 'type') === 'subtotal') line.type = 'subtotal';
     res.lines.push(line);
   }
   const prob = /<PROBLEM\b[^>]*\/>/.exec(xml);
@@ -275,6 +285,7 @@ export interface Check {
   ok: boolean;
   difference?: string;
   rounding?: string;        // set when the document matches only after rounding tax/discounts to the cent
+  follows?: boolean;        // subtotal: same difference as the checkpoint before - not a new error
 }
 
 /** a * b / c on exact decimals (for included tax: base * r / (100 + r)). */
@@ -291,25 +302,34 @@ function mulDiv(a: string, b: string, c: string): string {
  * cent and the next line works with the rounded running total. Returns the
  * rounded amount per line (by index) and the resulting total.
  */
-export function roundedModel(got: ResultLine[]): { amounts: Map<number, string>; total: string } {
-  const amounts = new Map<number, string>();
+export function roundedModel(got: ResultLine[], perLine = false): { amounts: Map<number, string>; total: string } {
+  const amounts = new Map<number, string>();          // tax/percent: rounded amount; subtotal: running total
   const runs = new Map<number, string>();             // running total per block
   let run = '0';
+  let lines: string[] = [];                           // position amounts of the block so far
+  let onlyPositions = true;                           // no tax/percent above in this block
   let block = got.length ? (got[0].block ?? 1) : 1;
   got.forEach((g, i) => {
-    if ((g.block ?? 1) !== block) { runs.set(block, run); block = g.block ?? 1; run = '0'; }
+    if ((g.block ?? 1) !== block) { runs.set(block, run); block = g.block ?? 1; run = '0'; lines = []; onlyPositions = true; }
+    if (g.type === 'subtotal') { amounts.set(i, run); return; }
     if (g.type === 'tax' || g.type === 'percent') {
       const rate = g.rate ?? '0';
-      let amt: string;
-      if (g.type === 'tax' && g.included) amt = '-' + mulDiv(run, rate, decimalSum(['100', rate]));
-      else amt = mulDiv(run, rate, '100');
-      amt = roundCents(amt.replace(/^--/, ''));
+      const one = (base: string) => {
+        const a = g.type === 'tax' && g.included ? '-' + mulDiv(base, rate, decimalSum(['100', rate])) : mulDiv(base, rate, '100');
+        return roundCents(a.replace(/^--/, ''));
+      };
+      // perLine: the tax is computed and rounded per position, then added up - what many
+      // billing programs do (Warenwirtschaft). Only defined directly on the positions.
+      const amt = perLine && g.type === 'tax' && onlyPositions ? decimalSum(lines.map(one)) : one(run);
+      onlyPositions = false;
       amounts.set(i, amt);
       run = decimalSum([run, amt]);
     } else {
       // Invoices round each line total to the cent (2.25 x 153.75 = 345.9375 -> 345.94).
       // Found by the fuzz test (fuzz/fuzz_verify.py, seed 1, cases 6 and 7).
-      run = decimalSum([run, g.qty !== undefined ? roundCents(g.value) : g.value]);
+      const v = g.qty !== undefined ? roundCents(g.value) : g.value;
+      lines.push(v);
+      run = decimalSum([run, v]);
     }
   });
   runs.set(block, run);
@@ -318,6 +338,7 @@ export function roundedModel(got: ResultLine[]): { amounts: Map<number, string>;
 }
 
 const ROUNDING_NOTE = 'matches when tax/discounts are rounded to the cent before adding (as invoices do); DeskCalc adds the exact amounts';
+const PER_LINE_NOTE = 'matches when the tax is rounded to the cent per position and then added up (as many billing programs do); DeskCalc computes the tax on the subtotal';
 
 /**
  * Compare the printed figures the agent supplied (line totals, tax amounts,
@@ -327,16 +348,38 @@ const ROUNDING_NOTE = 'matches when tax/discounts are rounded to the cent before
  * the rounded model (each amount rounded to the cent) counts as correct and is
  * marked as a rounding difference - any other deviation is reported.
  */
-export function checkDocument(sent: Item[], got: ResultLine[], total: string | undefined, expectedTotal?: string): Check[] {
+export interface ColumnTotals { net?: string; tax?: string }
+
+/** A cross-footed table row as confirmed: one block per row (net, tax, checkpoint "gross"). */
+export interface RowPart { label: string; printed: string; net: string; tax: string; computed: string }
+
+export function rowParts(sent: Item[], got: ResultLine[]): RowPart[] {
+  const groups = sent.filter(s => s.kind === 'group' && s.row === 'group');
+  const gross = sent.filter(s => s.row === 'gross');
+  const netLabel = sent.find(s => s.row === 'net')?.label, taxLabel = sent.find(s => s.row === 'tax')?.label;
+  return groups.map((grp, b) => {
+    const inB = got.filter(g => (g.block ?? 1) === b + 1);
+    const plain = inB.filter(g => !g.type);
+    const net = plain.find(g => g.label === netLabel) ?? plain[0];
+    const tax = plain.find(g => g !== net && g.label === taxLabel) ?? plain.find(g => g !== net);
+    const sub = inB.find(g => g.type === 'subtotal');
+    return { label: grp.label, printed: gross[b]?.printed ?? '0', net: net?.value ?? '0', tax: tax?.value ?? '0',
+             computed: sub?.value ?? decimalSum(plain.map(g => g.value)) };
+  });
+}
+
+export function checkDocument(sent: Item[], got: ResultLine[], total: string | undefined, expectedTotal?: string, columns: ColumnTotals = {}): Check[] {
   const checks: Check[] = [];
   const model = roundedModel(got);
+  const lineModel = roundedModel(got, true);
   const neg = (x: string) => (x.startsWith('-') ? x.slice(1) : '-' + x);
-  const mk = (check: string, document: string, computed: string, alt?: string): Check => {
+  const mk = (check: string, document: string, computed: string, alt?: string, alt2?: string): Check => {
     const d = roundCents(document), c = roundCents(computed);
     if (d === c) return { check, document: d, deskcalc: c, ok: true };
-    if (alt !== undefined && roundCents(alt) === d)
-      return { check, document: d, deskcalc: c, ok: true, difference: roundCents(decimalSum([c, neg(d)])), rounding: ROUNDING_NOTE };
-    return { check, document: d, deskcalc: c, ok: false, difference: roundCents(decimalSum([c, neg(d)])) };
+    const diff = roundCents(decimalSum([c, neg(d)]));
+    if (alt !== undefined && roundCents(alt) === d) return { check, document: d, deskcalc: c, ok: true, difference: diff, rounding: ROUNDING_NOTE };
+    if (alt2 !== undefined && roundCents(alt2) === d) return { check, document: d, deskcalc: c, ok: true, difference: diff, rounding: PER_LINE_NOTE };
+    return { check, document: d, deskcalc: c, ok: false, difference: diff };
   };
   const abs = (x: string) => x.replace(/^-/, '');
 
@@ -344,13 +387,27 @@ export function checkDocument(sent: Item[], got: ResultLine[], total: string | u
     if (s.kind === 'qty' && s.printed !== undefined)
       checks.push(mk(`line ${i + 1} "${s.label}": ${s.qty} x ${s.price}`, s.printed, s.value));
   });
+  // Cross-footing (Querfußen): each row is a block on the tape - net, tax and the printed
+  // gross as a checkpoint, so DeskCalc itself shows net + tax. Net and tax are the values
+  // the user confirmed (corrections count).
+  const rows = rowParts(sent, got);
+  let rowDiff: string | undefined;          // a wrong row also makes the gross total differ
+  if (rows.length) {
+    const rc = rows.map(r => mk(`row "${r.label}": net ${roundCents(r.net)} + tax ${roundCents(r.tax)}`, r.printed, r.computed));
+    checks.push(...rc);
+    const wrong = rc.filter(c => !c.ok);
+    if (wrong.length) rowDiff = roundCents(decimalSum(wrong.map(c => c.difference!)));
+    // Footing of the net and tax columns against the printed column totals.
+    if (columns.net !== undefined) checks.push(mk('net column', columns.net, decimalSum(rows.map(r => r.net))));
+    if (columns.tax !== undefined) checks.push(mk('tax column', columns.tax, decimalSum(rows.map(r => r.tax))));
+  }
   const idx = (type: 'tax' | 'percent') => got.map((g, i) => ({ g, i })).filter(x => x.g.type === type);
   const sentTax = sent.filter(s => s.kind === 'tax');
   idx('tax').forEach(({ g, i }, k) => {
     const s = sentTax[k];
     if (s?.printed !== undefined)   // printed tax is positive; an included tax comes back negative (subtracted)
       checks.push(mk(`tax ${g.rate} %${g.included ? ' (included)' : ''} on ${roundCents(g.base ?? '0')}`,
-        abs(s.printed), abs(g.value), abs(model.amounts.get(i) ?? g.value)));
+        abs(s.printed), abs(g.value), abs(model.amounts.get(i) ?? g.value), abs(lineModel.amounts.get(i) ?? g.value)));
   });
   const sentPerc = sent.filter(s => s.kind === 'percent');
   idx('percent').forEach(({ g, i }, k) => {
@@ -359,14 +416,31 @@ export function checkDocument(sent: Item[], got: ResultLine[], total: string | u
       checks.push(mk(`${Number(g.rate) < 0 ? 'discount' : 'surcharge'} ${abs(g.rate ?? '')} % on ${roundCents(g.base ?? '0')}`,
         abs(s.printed), abs(g.value), abs(model.amounts.get(i) ?? g.value)));
   });
+  // Checkpoints (printed subtotal / carry-over): compared with the running total of the
+  // confirmed tape at that point. The first wrong one locates the error; later ones with
+  // the same difference only follow from it.
+  const sentSub = sent.filter(s => s.kind === 'subtotal');
+  let lastDiff: string | undefined;
+  got.map((g, i) => ({ g, i })).filter(x => x.g.type === 'subtotal').forEach(({ g, i }, k) => {
+    const s = sentSub[k];
+    if (s?.printed === undefined || s.row) return;          // row checkpoints: checked above
+    const c = mk(`subtotal "${g.label}"`, s.printed, g.value, model.amounts.get(i), lineModel.amounts.get(i));
+    if (!c.ok && lastDiff !== undefined && c.difference === lastDiff) c.follows = true;
+    if (!c.ok) lastDiff = c.difference; else lastDiff = undefined;
+    checks.push(c);
+  });
   if (expectedTotal !== undefined && total !== undefined) {
     // With included tax the document's total is the gross amount: the tape subtracts the
     // included tax, so gross = total - (signed tax line). Not "+ |tax|": for a credit note
     // (negative base) the tax line is positive (found by the fuzz test, seed 2, case 22).
     const inclExact = got.filter(g => g.type === 'tax' && g.included).map(g => neg(g.value));
-    const inclRounded = got.map((g, i) => ({ g, i })).filter(x => x.g.type === 'tax' && x.g.included)
-      .map(x => neg(model.amounts.get(x.i) ?? x.g.value));
-    checks.push(mk('total', expectedTotal, decimalSum([total, ...inclExact]), decimalSum([model.total, ...inclRounded])));
+    const inclOf = (m: ReturnType<typeof roundedModel>) => got.map((g, i) => ({ g, i }))
+      .filter(x => x.g.type === 'tax' && x.g.included).map(x => neg(m.amounts.get(x.i) ?? x.g.value));
+    const c = mk('total', expectedTotal, decimalSum([total, ...inclExact]),
+      decimalSum([model.total, ...inclOf(model)]), decimalSum([lineModel.total, ...inclOf(lineModel)]));
+    if (!c.ok && lastDiff !== undefined && c.difference === lastDiff) c.follows = true;
+    if (!c.ok && rowDiff !== undefined && c.difference === rowDiff) c.follows = true;
+    checks.push(c);
   }
   return checks;
 }

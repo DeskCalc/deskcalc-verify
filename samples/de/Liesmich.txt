@@ -1,0 +1,3 @@
+Musterbelege für DeskCalc Verify - alle Firmen, Personen und Kontonummern sind erfunden.
+Jeder Ordner enthält PDF-Belege mit absichtlichen Fehlern und eine Lösung.txt.
+Die Lösung NICHT an Claude anhängen.

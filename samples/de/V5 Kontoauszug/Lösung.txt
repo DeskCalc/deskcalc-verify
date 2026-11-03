@@ -1,0 +1,9 @@
+V5 Kontoauszug mit Überträgen - Musterlösung
+
+"Kontoauszug 10-2026 Musterbank.pdf" anhängen, Prompt "Check a statement with carry-overs".
+Anfangssaldo 42.480,35 ist eine Betragszeile, die Überträge sind Kontrollpunkte (subtotal).
+
+Erwartet:
+  Übertrag Seite 1: gedruckt 36.134,78 = richtig -> ok
+  Übertrag Seite 2: gedruckt 28.522,36, richtig 28.532,36 -> Abweichung -10,00 (erster Fehler)
+  Endsaldo:         gedruckt 13.692,56, richtig 13.702,56 -> Folgefehler (gleiche Differenz)

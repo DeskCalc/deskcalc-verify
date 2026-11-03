@@ -1,0 +1,11 @@
+V6 Fußen und Querfußen - Musterlösung
+
+"Rechnungsausgangsbuch Q3 2026.pdf" anhängen, Prompt "Foot and cross-foot a table".
+16 Zeilen, je Zeile Netto + USt = Brutto; eine Gutschrift (GS-2026-1112, negativ).
+
+Erwartet:
+  Zeile RE-2026-1107: Netto 6.566,55 + USt 853,65 = 7.420,20, gedruckt 7.420,02 (Zahlendreher)
+  Netto-Spalte: gedruckt 73.683,19, richtig 73.583,19 -> 100,00 zu hoch
+  USt-Spalte:   12.479,60 -> ok
+  Brutto-Summe: gedruckt 86.062,61 = Summe der gedruckten Bruttowerte -> ok
+                (mit korrigierter Zeile RE-2026-1107 wäre sie 86.062,79)

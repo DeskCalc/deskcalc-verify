@@ -2,12 +2,14 @@
 // acknowledgement and then (in slices) for the human to press Confirm.
 
 import { randomBytes } from 'node:crypto';
-import { existsSync, readFileSync, rmSync, writeFileSync, renameSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { findDeskCalc, exchangeDir, launchVerify } from './deskcalc.js';
+import { reconcile, type Reconciliation } from './compare.js';
+import { buildAuditPdf, auditFileName, type Lang } from './audit.js';
 import {
   buildJob, parseResult, diffLines, decimalSum, decimalMul, sameAmount, normaliseValue, cleanLabel,
-  checkDocument, MAX_LINES, type Item, type Correction, type DeskCalcResult, type ResultLine, type Check,
+  checkDocument, rowParts, MAX_LINES, type ColumnTotals, type Item, type Correction, type DeskCalcResult, type ResultLine, type Check,
 } from './protocol.js';
 
 export const ACK_TIMEOUT_MS = Number(process.env.DESKCALC_ACK_TIMEOUT_MS ?? 15000);
@@ -28,7 +30,7 @@ export interface Outcome {
   corrections?: Correction[];
   document_check?: { ok: boolean; checks: Check[] };
   gt_outdated?: boolean;
-  rerun?: { title: string; items: VerifyItemInput[]; expected_total?: string; replace_review_id: string };
+  rerun?: { title: string; items: VerifyItemInput[]; expected_total?: string; expected_net_total?: string; expected_tax_total?: string; row_labels?: RowLabels; replace_review_id: string };
   confirmed_by_user?: boolean;
   problem?: { line?: number; value?: string };
   warnings?: string[];
@@ -40,14 +42,31 @@ interface Review {
   title: string;
   sent: Item[];
   expectedTotal?: string;
+  columns: ColumnTotals;
+  rowLabels?: RowLabels;
+  lang?: Lang;                   // DeskCalc's language for this tape
   inputTitle: string;
   started: number;
   acked: boolean;
   final?: Outcome;
+  confirmedAt?: Date;
+  blocks?: string[];
 }
 
 const reviews = new Map<string, Review>();
 let active: Review | undefined;
+// Last confirmed review whose GT line was outdated: its second pass reuses the tab even
+// when the agent forgets replace_review_id (hand test 03.11.: Claude did, new tab "(2)").
+let lastOutdated: Review | undefined;
+// DeskCalc's UI language, as its last acknowledgement/result said; before that the Windows language.
+let deskcalcLang: Lang | undefined;
+export function currentLang(): Lang {
+  if (deskcalcLang) return deskcalcLang;
+  try { return Intl.DateTimeFormat().resolvedOptions().locale.toLowerCase().startsWith('de') ? 'de' : 'en'; } catch { return 'en'; }
+}
+function langOf(file: string): Lang | undefined {
+  try { return parseResult(readFileSync(file)).lang; } catch { return undefined; }
+}
 
 export interface WaitHooks {
   signal?: AbortSignal;
@@ -62,6 +81,7 @@ function cleanup(r: Review) {
 
 function finish(r: Review, o: Outcome): Outcome {
   r.final = { ...o, review_id: r.id };
+  if (o.status === 'confirmed') r.confirmedAt = new Date();
   if (active === r) active = undefined;
   cleanup(r);
   return r.final;
@@ -76,18 +96,22 @@ const MESSAGES: Record<string, string> = {
   bad_request: 'DeskCalc could not read a line (see "problem"). Values must be plain numbers with "." as decimal separator.',
 };
 
+const NEWER_KINDS = new Set<string>(['group', 'subtotal']);
+
 function fromResult(r: Review, res: DeskCalcResult): Outcome {
+  if (res.lang) r.lang = deskcalcLang = res.lang;
   if (res.status === 'confirmed') {
     const warnings: string[] = [];
     if (res.notes.includes('labels_truncated')) warnings.push('Some labels were longer than 60 characters and were shortened.');
     if ((res.calculations ?? 1) > 1) warnings.push('The user split the tape into several calculations; total is the last calculation shown by DeskCalc.');
-    const plain = res.lines.every(l => !l.op);   // tax and qty lines carry their signed amount
-    if (plain && res.total !== undefined && res.lines.length > 0) {
-      const sum = decimalSum(res.lines.map(l => l.value));
+    const counted = res.lines.filter(l => l.type !== 'subtotal');   // checkpoints only show the running total
+    const plain = counted.every(l => !l.op);   // tax and qty lines carry their signed amount
+    if (plain && res.total !== undefined && counted.length > 0) {
+      const sum = decimalSum(counted.map(l => l.value));
       if (!sameAmount(sum, res.total)) warnings.push(`Sum of the confirmed lines (${sum}) differs from the DeskCalc total (${res.total}). Ask the user before relying on it.`);
     }
     const corrections = diffLines(r.sent, res.lines);
-    const checks = checkDocument(r.sent, res.lines, res.total, r.expectedTotal);
+    const checks = checkDocument(r.sent, res.lines, res.total, r.expectedTotal, r.columns);
     const bad = checks.filter(c => !c.ok);
     let message = corrections.length
       ? `The user checked the tape in DeskCalc, made ${corrections.length} correction(s) and pressed Confirm. Use the total below.`
@@ -95,7 +119,7 @@ function fromResult(r: Review, res: DeskCalcResult): Outcome {
     if (checks.length) {
       message += bad.length
         ? ` Document check: ${bad.length} of ${checks.length} figure(s) do NOT match the confirmed tape - report them to the user: ` +
-          bad.map(c => `${c.check}: document ${c.document}, DeskCalc ${c.deskcalc} (difference ${c.difference})`).join('; ') + '.'
+          bad.map(c => `${c.check}: document ${c.document}, DeskCalc ${c.deskcalc} (difference ${c.difference})${c.follows ? ' - follows from the difference above, not a new error' : ''}`).join('; ') + '.'
         : ` Document check: all ${checks.length} printed figure(s) match the confirmed tape to the cent.`;
       const rounded = checks.filter(c => c.ok && c.rounding);
       if (rounded.length)
@@ -107,9 +131,13 @@ function fromResult(r: Review, res: DeskCalcResult): Outcome {
     // user corrected a block, it is outdated - offer a second pass with the
     // confirmed lines so the user sees and confirms the corrected invoice.
     let rerun: Outcome['rerun'];
+    lastOutdated = res.gt?.outdated ? r : undefined;
     if (res.gt?.outdated) {
       rerun = { title: r.inputTitle, items: rerunItems(r.sent, res.lines), replace_review_id: r.id,
-                ...(r.expectedTotal !== undefined ? { expected_total: r.expectedTotal } : {}) };
+                ...(r.expectedTotal !== undefined ? { expected_total: r.expectedTotal } : {}),
+                ...(r.columns.net !== undefined ? { expected_net_total: r.columns.net } : {}),
+                ...(r.columns.tax !== undefined ? { expected_tax_total: r.columns.tax } : {}),
+                ...(r.rowLabels ? { row_labels: r.rowLabels } : {}) };
       message += ' IMPORTANT: the user corrected the tape, so the GT (grand total) line in DeskCalc is outdated - ' +
         `the total above (${res.total}) is the correct sum of the corrected blocks. Call verify_numbers again with ` +
         'the arguments in "rerun" (same tab in DeskCalc) so the user can confirm the corrected invoice, then use that result.';
@@ -124,6 +152,15 @@ function fromResult(r: Review, res: DeskCalcResult): Outcome {
       ...(checks.length ? { document_check: { ok: bad.length === 0, checks } } : {}),
       confirmed_by_user: true,
       ...(warnings.length ? { warnings } : {}),
+    };
+  }
+  // A DeskCalc started before an update does not know newer line kinds (group, subtotal).
+  const pl = res.problem?.line;
+  if (res.status === 'bad_request' && pl !== undefined && r.sent[pl - 1] && NEWER_KINDS.has(r.sent[pl - 1].kind)) {
+    return {
+      status: 'deskcalc_update_required',
+      message: `The running DeskCalc does not know "${r.sent[pl - 1].kind}" lines - it is older than this server. Ask the user to close DeskCalc completely (it may still run from before an update) and try again; if it persists, DeskCalc must be updated: ${DOWNLOAD_URL}`,
+      problem: res.problem,
     };
   }
   return {
@@ -151,9 +188,16 @@ async function waitFor(r: Review, waitS: number, hooks: WaitHooks): Promise<Outc
     if (existsSync(resultFile)) {
       let res: DeskCalcResult | undefined;
       try { res = parseResult(readFileSync(resultFile)); } catch { /* partially written - retry */ }
-      if (res) return finish(r, fromResult(r, res));
+      if (res) {
+        if (res.blocks?.length) r.blocks = res.blocks.map(b => b.label.replace(/\s*\(\d+ \S+\)$/, ''));
+        return finish(r, fromResult(r, res));
+      }
     }
-    if (!r.acked && existsSync(r.base + '.ack.xml')) r.acked = true;
+    if (!r.acked && existsSync(r.base + '.ack.xml')) {
+      r.acked = true;
+      const l = langOf(r.base + '.ack.xml');
+      if (l) r.lang = deskcalcLang = l;
+    }
     if (!r.acked && Date.now() - r.started > ACK_TIMEOUT_MS) {
       return finish(r, {
         status: 'deskcalc_update_required',
@@ -173,25 +217,37 @@ async function waitFor(r: Review, waitS: number, hooks: WaitHooks): Promise<Outc
 }
 
 export interface VerifyItemInput {
-  type?: 'amount' | 'tax' | 'percent' | 'group';
+  type?: 'amount' | 'tax' | 'percent' | 'group' | 'subtotal';
   label?: string;
   value?: number | string;      // amount; with qty/price: the printed line total; tax: the printed tax amount
   qty?: number | string;
   price?: number | string;
   rate?: number | string;       // tax rate in %; percent: negative = discount, positive = surcharge
   included?: boolean;           // tax contained in the amounts above (gross prices)
+  net?: number | string;        // cross-footing: printed net of the row (value = printed gross)
+  tax?: number | string;        // cross-footing: printed tax of the row
+  foreign?: number | string;    // foreign currency amount (with fx_rate)
+  currency?: string;            // e.g. "USD"
+  fx_rate?: number | string;    // home currency per 1 unit of the foreign currency
 }
+
+export interface RowLabels { net?: string; tax?: string; gross?: string }
 
 export interface VerifyInput {
   title: string;
+  row_labels?: RowLabels;       // cross-footing: tape labels of the net/tax/gross lines (user's language)
   items: VerifyItemInput[];
   expected_total?: number | string;
+  expected_net_total?: number | string;
+  expected_tax_total?: number | string;
   wait_seconds?: number;
   replace_review_id?: string;
 }
 
 /** Confirmed lines back into tool arguments (second pass); printed figures carried over. */
 function rerunItems(sent: Item[], got: ResultLine[]): VerifyItemInput[] {
+  const rows = rowParts(sent, got);   // a cross-footed table: back to one line per row
+  if (rows.length) return rows.map(r => ({ label: r.label, value: r.printed, net: r.net, tax: r.tax }));
   const groups = sent.filter(s => s.kind === 'group');
   const used = new Set<Item>();
   const printedFor = (kind: string, label: string) => {
@@ -206,7 +262,10 @@ function rerunItems(sent: Item[], got: ResultLine[]): VerifyItemInput[] {
       block = g.block ?? 1;
       out.push({ type: 'group', label: groups[block - 1]?.label ?? '' });
     }
-    if (g.type === 'tax') {
+    if (g.type === 'subtotal') {
+      const p = printedFor('subtotal', g.label);
+      out.push({ type: 'subtotal', label: g.label, ...(p !== undefined ? { value: p } : {}) });
+    } else if (g.type === 'tax') {
       const p = printedFor('tax', g.label);
       out.push({ type: 'tax', rate: g.rate, included: !!g.included, label: g.label, ...(p !== undefined ? { value: p } : {}) });
     } else if (g.type === 'percent') {
@@ -229,6 +288,11 @@ function toItem(x: VerifyItemInput, line: number): Item | { error: string } {
     return n.ok ? n.value : { error: `Line ${line}: ${what} ${n.error}` };
   };
   if (x.type === 'group') return { kind: 'group', label, value: '' };
+  if (x.type === 'subtotal') {
+    let printed: string | undefined;
+    if (x.value !== undefined) { const p = num(x.value, 'value'); if (typeof p !== 'string') return p; printed = p; }
+    return { kind: 'subtotal', label, value: '', printed };
+  }
   if (x.type === 'percent') {
     const rate = num(x.rate, 'rate');
     if (typeof rate !== 'string') return rate;
@@ -245,6 +309,16 @@ function toItem(x: VerifyItemInput, line: number): Item | { error: string } {
     if (x.value !== undefined) { const p = num(x.value, 'value'); if (typeof p !== 'string') return p; printed = p; }
     return { kind: 'tax', label, value: '', rate, included: !!x.included, printed };
   }
+  if (x.fx_rate !== undefined || x.foreign !== undefined) {
+    // Foreign currency: foreign amount x rate, shown like qty x price; value = printed home amount.
+    const rate = num(x.fx_rate, 'fx_rate'); if (typeof rate !== 'string') return rate;
+    const foreign = num(x.foreign, 'foreign'); if (typeof foreign !== 'string') return foreign;
+    if (!(Number(rate) > 0)) return { error: `Line ${line}: fx_rate must be greater than 0 (home currency per 1 ${x.currency ?? 'unit'}).` };
+    let printed: string | undefined;
+    if (x.value !== undefined) { const p = num(x.value, 'value'); if (typeof p !== 'string') return p; printed = p; }
+    const cur = cleanLabel(x.currency).slice(0, 4);
+    return { kind: 'qty', label: label || `${cur} ${foreign}`.trim(), qty: rate, price: foreign, value: decimalMul(rate, foreign), printed };
+  }
   if (x.qty !== undefined || x.price !== undefined) {
     const qty = num(x.qty, 'qty'); if (typeof qty !== 'string') return qty;
     const price = num(x.price, 'price'); if (typeof price !== 'string') return price;
@@ -254,6 +328,12 @@ function toItem(x: VerifyItemInput, line: number): Item | { error: string } {
     return { kind: 'qty', label, qty, price, value: decimalMul(qty, price), printed };
   }
   const value = num(x.value, 'value'); if (typeof value !== 'string') return value;
+  if ((x.net === undefined) !== (x.tax === undefined)) return { error: `Line ${line}: cross-footing needs both net and tax (value = gross).` };
+  if (x.net !== undefined) {
+    const net = num(x.net, 'net'); if (typeof net !== 'string') return net;
+    const tax = num(x.tax, 'tax'); if (typeof tax !== 'string') return tax;
+    return { kind: 'amount', label, value, net, tax };
+  }
   return { kind: 'amount', label, value };
 }
 
@@ -272,14 +352,30 @@ export async function verifyNumbers(input: VerifyInput, hooks: WaitHooks = {}): 
 
   const items: Item[] = [];
   let inBlock = 0;                                     // positions in the current block
+  // Cross-footing: each table row becomes its own block - net, tax and the printed gross as a
+  // checkpoint - so the user sees all three figures and DeskCalc computes net + tax.
+  const de = currentLang() === 'de';            // tape labels in DeskCalc's language
+  const RL = { net: cleanLabel(input.row_labels?.net) || (de ? 'Netto' : 'Net'), tax: cleanLabel(input.row_labels?.tax) || (de ? 'USt' : 'Tax'),
+               gross: cleanLabel(input.row_labels?.gross) || (de ? 'Brutto lt. Beleg' : 'Gross per document') };
+  let rowCount = 0, other = 0;
   for (let i = 0; i < input.items.length; i++) {
     const it = toItem(input.items[i], i + 1);
     if ('error' in it) return { status: 'bad_request', message: it.error, problem: { line: i + 1 } };
+    if (it.kind === 'amount' && it.net !== undefined) {
+      rowCount++;
+      items.push({ kind: 'group', label: it.label || `Row ${rowCount}`, value: '', row: 'group' },
+                 { kind: 'amount', label: RL.net, value: it.net, row: 'net' },
+                 { kind: 'amount', label: RL.tax, value: it.tax!, row: 'tax' },
+                 { kind: 'subtotal', label: RL.gross, value: '', printed: it.value, row: 'gross' });
+      inBlock = 2;
+      continue;
+    }
+    other++;
     if (it.kind === 'group') {
       if (i > 0 && inBlock === 0)
         return { status: 'bad_request', message: `Line ${i + 1}: the group above has no positions.`, problem: { line: i + 1 } };
       inBlock = 0;
-    } else if (it.kind === 'tax' || it.kind === 'percent') {
+    } else if (it.kind === 'tax' || it.kind === 'percent' || it.kind === 'subtotal') {
       if (inBlock === 0)
         return { status: 'bad_request', message: `Line ${i + 1}: a ${it.kind} line needs the positions it applies to above it (in the same group).`, problem: { line: i + 1 } };
     } else inBlock++;
@@ -287,11 +383,22 @@ export async function verifyNumbers(input: VerifyInput, hooks: WaitHooks = {}): 
   }
   if (items.length && inBlock === 0)
     return { status: 'bad_request', message: 'The last group has no positions.', problem: { line: items.length } };
+  if (rowCount && other)
+    return { status: 'bad_request', message: 'A cross-footed table takes only rows {label, value: gross, net, tax}. Check other lines in a separate verification.' };
+  if (items.length > MAX_LINES)
+    return { status: 'bad_request', message: `Too many lines for one tape (each cross-footed row takes 4, at most ${Math.floor(MAX_LINES / 4)} rows). Split the table, e.g. per page.` };
   let expectedTotal: string | undefined;
   if (input.expected_total !== undefined) {
     const e = normaliseValue(input.expected_total);
     if (!e.ok) return { status: 'bad_request', message: `expected_total: ${e.error}` };
     expectedTotal = e.value;
+  }
+  const columns: ColumnTotals = {};
+  for (const [k, v] of [['net', input.expected_net_total], ['tax', input.expected_tax_total]] as const) {
+    if (v === undefined) continue;
+    const e = normaliseValue(v);
+    if (!e.ok) return { status: 'bad_request', message: `expected_${k}_total: ${e.error}` };
+    columns[k] = e.value;
   }
 
   const dc = findDeskCalc();
@@ -302,13 +409,15 @@ export async function verifyNumbers(input: VerifyInput, hooks: WaitHooks = {}): 
   const id = randomBytes(4).toString('hex');
   const base = join(exchangeDir(), `v-${id}`);
   // Second pass: reuse the tab of the confirmed review it replaces.
-  const prev = input.replace_review_id ? reviews.get(input.replace_review_id) : undefined;
+  const auto = !input.replace_review_id && lastOutdated?.inputTitle === input.title ? lastOutdated : undefined;
+  const prev = input.replace_review_id ? reviews.get(input.replace_review_id) : auto;
+  lastOutdated = undefined;
   const replace = prev?.final?.status === 'confirmed' ? prev.id : undefined;
   const job = buildJob(id, input.title, items, replace);
   writeFileSync(base + '.xml.tmp', job.bytes);
   renameSync(base + '.xml.tmp', base + '.xml');
 
-  const r: Review = { id, base, title: cleanLabel(input.title) || 'Verify', inputTitle: input.title, sent: items, expectedTotal, started: Date.now(), acked: false };
+  const r: Review = { id, base, title: cleanLabel(input.title) || 'Verify', inputTitle: input.title, sent: items, expectedTotal, columns, ...(rowCount ? { rowLabels: input.row_labels ?? {} } : {}), started: Date.now(), acked: false };
   reviews.set(id, r);
   active = r;
   launchVerify(dc.path, base + '.xml');
@@ -336,4 +445,44 @@ export function status() {
     open_review: active && !active.final ? active.id : null,
     download: dc.found ? undefined : DOWNLOAD_URL,
   };
+}
+
+function confirmedReview(id: string): Review | Outcome {
+  const r = reviews.get(id);
+  if (!r) return { status: 'unknown_review', message: `No verification with review_id "${id}" in this session.` };
+  if (r.final?.status !== 'confirmed') return { status: 'not_confirmed', message: `Verification "${id}" is not confirmed (yet). Only confirmed tapes can be used.` };
+  return r;
+}
+
+/** V7: reconcile two confirmed tapes (invoice <-> delivery note / order / payment). */
+export function compareVerifications(a: string, b: string, ignoreSign = false): Outcome & { reconciliation?: Reconciliation } {
+  const ra = confirmedReview(a), rb = confirmedReview(b);
+  if (!('base' in ra)) return ra;
+  if (!('base' in rb)) return rb;
+  const rec = reconcile(ra.final!.lines ?? [], rb.final!.lines ?? [], ignoreSign);
+  const open = rec.amount_differs.length + rec.only_in_a.length + rec.only_in_b.length;
+  const message = open === 0 && rec.difference === '0.00'
+    ? `All ${rec.matched.length} position(s) of "${ra.title}" and "${rb.title}" match to the cent.`
+    : `"${ra.title}" vs "${rb.title}": ${rec.matched.length} matched, ${rec.amount_differs.length} with a different amount, ` +
+      `${rec.only_in_a.length} only in "${ra.title}", ${rec.only_in_b.length} only in "${rb.title}". Total difference ${rec.difference}. ` +
+      'Report the open items to the user; both sides were confirmed by the user in DeskCalc.';
+  return { status: 'compared', message, reconciliation: rec };
+}
+
+/** V9: write the audit record (PDF) of a confirmed verification. */
+export function saveAuditRecord(id: string, opts: { source?: string; note?: string; language?: Lang; version: string }): Outcome & { file?: string } {
+  const r = confirmedReview(id);
+  if (!('base' in r)) return r;
+  const lang: Lang = opts.language ?? r.lang ?? currentLang();   // DeskCalc's language unless the user asks otherwise
+  const dir = join(exchangeDir(), lang === 'de' ? 'Prüfnachweise' : 'Audit records');
+  mkdirSync(dir, { recursive: true });
+  const at = r.confirmedAt ?? new Date();
+  const file = join(dir, auditFileName(r.title, at, r.id));
+  const pdf = buildAuditPdf({
+    reviewId: r.id, title: r.title, source: opts.source, note: opts.note, confirmedAt: at,
+    total: r.final!.total ?? '0', expectedTotal: r.expectedTotal, lines: r.final!.lines ?? [], blocks: r.blocks,
+    corrections: r.final!.corrections ?? [], checks: r.final!.document_check?.checks ?? [], version: opts.version, lang,
+  });
+  writeFileSync(file, pdf);
+  return { status: 'saved', file, message: `Audit record saved as PDF: ${file}. Tell the user where it is; it belongs in the working papers.` };
 }

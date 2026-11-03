@@ -1,0 +1,11 @@
+V4 Expenses - solution (all companies fictitious)
+
+1) Attach "30 expense receipts October 2026.pdf", prompt "Add up expense receipts".
+   Expected: ONE tape, 30 lines, total 1,316.75.
+   With VAT: "each receipt with its included VAT" -> 30 blocks + GT 1,316.75.
+   Error: receipt 18 (Huber Stationery, 49.90) prints VAT 20 % 8.72, correct is 8.32 (difference 0.40).
+
+2) "Expense claim October 2026.pdf": printed total 1,311.45, sum of the lines 1,310.45 -> added up 1.00 too high.
+
+3) Check both, then "reconcile the claim with the receipts" (compare_verifications):
+   No. 12 Regional Rail ticket machine: receipt 57.04, claim 50.74 (transposed digits).

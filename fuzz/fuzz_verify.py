@@ -59,6 +59,13 @@ def gen_mixed(rng, n):
     return {'title': f'Fuzz {n} gemischt', 'items': items}
 
 def gen_case(rng, n):
+    """Random invoice; a quarter of them compute the tax per position (billing programs)."""
+    c = gen_case0(rng, n)
+    if rng.random() < 0.25:
+        c['perline'] = True
+    return c
+
+def gen_case0(rng, n):
     """Random invoice: positions, optional discount, one tax (excl/incl), optional skonto."""
     if rng.random() < 0.3:
         return gen_mixed(rng, n)
@@ -90,25 +97,34 @@ def reference(case):
     run, doc = D(0), D(0)
     exact, printed = [], []
     runs, docs = [], []
+    perline = case.get('perline', False)
+    pos, only_pos = [], True                 # printed position amounts of the block
     for it in case['items']:
         if it.get('type') == 'group':
             if exact:                       # close the previous block
                 runs.append(run); docs.append(doc); run, doc = D(0), D(0)
+            pos, only_pos = [], True
             exact.append(None); printed.append(None)
             continue
         if it.get('type') == 'tax':
             r = D(it['rate'])
+            per = perline and only_pos
             if it.get('included'):
-                amt, pamt = -(run - run / (1 + r / 100)), -r2(doc - doc / (1 + r / 100))
+                amt = -(run - run / (1 + r / 100))
+                pamt = -sum((r2(p - p / (1 + r / 100)) for p in pos), D(0)) if per else -r2(doc - doc / (1 + r / 100))
             else:
-                amt, pamt = run * r / 100, r2(doc * r / 100)
+                amt = run * r / 100
+                pamt = sum((r2(p * r / 100) for p in pos), D(0)) if per else r2(doc * r / 100)
+            only_pos = False
         elif it.get('type') == 'percent':
             amt, pamt = run * D(it['rate']) / 100, r2(doc * D(it['rate']) / 100)
+            only_pos = False
         elif 'qty' in it:
             amt = D(str(it['qty'])) * D(it['price'])
             pamt = r2(amt)
         else:
             amt = pamt = D(it['value'])
+        if it.get('type') is None: pos.append(pamt)
         exact.append(amt); printed.append(pamt)
         run += amt; doc += pamt
     runs.append(run); docs.append(doc)
@@ -125,6 +141,8 @@ def reference(case):
 def with_printed(case, ref, rng):
     """Attach printed figures; sometimes mis-print one of them (must be reported)."""
     c = json.loads(json.dumps(case))
+    c.pop('perline', None)                   # a property of the document, not a tool argument
+    alt = reference({**case, 'perline': not case.get('perline', False)})   # the other valid way
     for it, p in zip(c['items'], ref['printed']):
         if p is not None and ('qty' in it or it.get('type') in ('tax', 'percent')):
             it['value'] = str(p)
@@ -138,13 +156,13 @@ def with_printed(case, ref, rng):
         if t == 'total':
             new = D(c['expected_total']) + D(delta)
             c['expected_total'] = str(new)
-            valid = {r2(ref['exact_gross']), r2(ref['doc_total'])}
+            valid = {r2(ref['exact_gross']), r2(ref['doc_total']), r2(alt['doc_total'])}
         else:
             v = D(c['items'][t]['value'])
             new = v + D(delta) if v >= 0 else v - D(delta)
             c['items'][t]['value'] = str(new)
             ex = ref['exact'][ref['keep'].index(t)]
-            valid = {abs(r2(ex)), abs(ref['printed'][t])}
+            valid = {abs(r2(ex)), abs(ref['printed'][t]), abs(alt['printed'][t])}
         # A mis-print that equals another valid way of computing (exact vs. rounded
         # per step) cannot be told apart from a correct document.
         wrong = {'target': t, 'delta': delta, 'ambiguous': abs(new) in valid}

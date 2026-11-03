@@ -1,0 +1,15 @@
+V8 Fremdwährung - Musterlösung
+
+"Reisekosten New York Zuerich.pdf" anhängen: "prüfe die Umrechnungen und die Summe".
+USD: Betrag x 0,9215 (fx_rate). CHF: Kurs ist 1 EUR = 0,9365 CHF (Kehrwert) -> Betrag / 0,9365;
+laut Beschreibung gibt Claude dann den Euro-Betrag als Zeile, den Kurs im Text.
+
+Richtig umgerechnet:
+  Hotel Midtown, 2 Nächte        USD   412,00 ->   379,66
+  Taxi Flughafen - Hotel         USD    68,50 ->    63,12
+  Messeeintritt                  USD   245,00 ->   225,77   gedruckt 227,57 (Zahlendreher)
+  Abendessen Kundentermin        USD   187,40 ->   172,69
+  Bahn Zürich HB - Basel         CHF    39,00 ->    41,64
+  Hotel am See, 1 Nacht          CHF   214,00 ->   228,51
+  Mittagessen                    CHF    46,80 ->    49,97
+Summe EUR richtig 1.161,36, gedruckt 1.163,16 (Folge des Zahlendrehers).

@@ -1,0 +1,12 @@
+V7 Zwei Belege abgleichen - Musterlösung
+
+Beide PDFs anhängen, Prompt "Reconcile two documents" (Bestellung = A, Rechnung = B).
+Bestellung netto 926,50 / brutto 1.111,80; Rechnung netto 913,40 / brutto 1.096,08.
+
+Erwartet:
+  gleich:            6 Positionen
+  Betrag weicht ab:  Toner schwarz TX-200: 4 x 89,90 = 359,60 bestellt, 4 x 98,90 = 395,60 berechnet (+36,00)
+  nur in Bestellung: Archivbox A4 20 x 3,20 = 64,00 (nicht geliefert/berechnet)
+  nur in Rechnung:   Versandkostenpauschale 14,90 (nicht bestellt)
+  Differenz netto:   -13,10
+Die Rechnung selbst rechnet richtig (Menge x Preis, USt, Gesamtbetrag ok).

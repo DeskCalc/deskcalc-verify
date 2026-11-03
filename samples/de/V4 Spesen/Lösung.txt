@@ -1,0 +1,11 @@
+V4 Spesen - Musterlösung (alle Firmen erfunden)
+
+1) "30 Spesenbelege Oktober 2026.pdf" anhängen, Prompt "Add up expense receipts".
+   Erwartet: EIN Reiter, 30 Zeilen, Summe 1.316,75.
+   Variante mit USt: "jeder Beleg mit seiner enthaltenen USt" -> 30 Blöcke + GT 1.316,75.
+   Fehler: Beleg 17 (Regionalbahn Ticketautomat, 51,02) druckt 10 % MwSt 5,04, richtig ist 4,64 (Differenz 0,40).
+
+2) "Spesenabrechnung Oktober 2026.pdf": Summe gedruckt 1.311,45, Summe der Zeilen 1.310,45 -> um 1,00 zu hoch addiert.
+
+3) Beide prüfen, dann "gleiche die Abrechnung mit den Belegen ab" (compare_verifications):
+   Nr. 12 Regionalbahn Ticketautomat: Beleg 57,04, Abrechnung 50,74 (Zahlendreher).

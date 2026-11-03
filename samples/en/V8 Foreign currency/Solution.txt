@@ -1,0 +1,15 @@
+V8 Foreign currency - solution
+
+Attach "Travel expenses New York Zurich.pdf": "check the conversions and the total".
+USD: amount x 0.7850 (fx_rate). CHF: the rate is 1 GBP = 1.1240 CHF (inverse) -> amount / 1.1240;
+as the tool description says, the AI then sends the GBP amount as a line with the rate in the text.
+
+Correctly converted:
+  Hotel Midtown, 2 nights        USD   412.00 ->   323.42
+  Taxi airport - hotel           USD    68.50 ->    53.77
+  Trade fair admission           USD   245.00 ->   192.33   printed 193.23 (transposed digits)
+  Client dinner                  USD   187.40 ->   147.11
+  Train Zurich HB - Basel        CHF    39.00 ->    34.70
+  Lakeside hotel, 1 night        CHF   214.00 ->   190.39
+  Lunch                          CHF    46.80 ->    41.64
+Total GBP correct 983.36, printed 984.26 (follows from the transposed digits).

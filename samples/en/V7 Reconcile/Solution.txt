@@ -1,0 +1,12 @@
+V7 Reconcile two documents - solution
+
+Attach both PDFs, prompt "Reconcile two documents" (purchase order = A, invoice = B).
+Order net 926.50 / gross 1,111.80; invoice net 913.40 / gross 1,096.08.
+
+Expected:
+  matched:          6 items
+  amount differs:   Toner black TX-200: 4 x 89.90 = 359.60 ordered, 4 x 98.90 = 395.60 invoiced (+36.00)
+  only in order:    Archive box A4 20 x 3.20 = 64.00 (not delivered/invoiced)
+  only in invoice:  Delivery charge 14.90 (not ordered)
+  net difference:   -13.10
+The invoice itself adds up correctly (qty x price, VAT, total ok).
