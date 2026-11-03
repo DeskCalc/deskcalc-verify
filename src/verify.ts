@@ -94,6 +94,11 @@ function fromResult(r: Review, res: DeskCalcResult): Outcome {
         ? ` Document check: ${bad.length} of ${checks.length} figure(s) do NOT match the confirmed tape - report them to the user: ` +
           bad.map(c => `${c.check}: document ${c.document}, DeskCalc ${c.deskcalc} (difference ${c.difference})`).join('; ') + '.'
         : ` Document check: all ${checks.length} printed figure(s) match the confirmed tape to the cent.`;
+      const rounded = checks.filter(c => c.ok && c.rounding);
+      if (rounded.length)
+        message += ` ${rounded.length} of them differ from DeskCalc's exact result by a rounding amount only (` +
+          rounded.map(c => `${c.check}: ${c.difference}`).join('; ') +
+          ') - the document rounds tax/discounts to the cent before adding. This is not an error.';
     }
     return {
       status: 'confirmed',
@@ -153,12 +158,12 @@ async function waitFor(r: Review, waitS: number, hooks: WaitHooks): Promise<Outc
 }
 
 export interface VerifyItemInput {
-  type?: 'amount' | 'tax';
+  type?: 'amount' | 'tax' | 'percent';
   label?: string;
   value?: number | string;      // amount; with qty/price: the printed line total; tax: the printed tax amount
   qty?: number | string;
   price?: number | string;
-  rate?: number | string;       // tax rate in %
+  rate?: number | string;       // tax rate in %; percent: negative = discount, positive = surcharge
   included?: boolean;           // tax contained in the amounts above (gross prices)
 }
 
@@ -175,6 +180,14 @@ function toItem(x: VerifyItemInput, line: number): Item | { error: string } {
     const n = normaliseValue(v);
     return n.ok ? n.value : { error: `Line ${line}: ${what} ${n.error}` };
   };
+  if (x.type === 'percent') {
+    const rate = num(x.rate, 'rate');
+    if (typeof rate !== 'string') return rate;
+    if (!(Number(rate) !== 0 && Math.abs(Number(rate)) < 100)) return { error: `Line ${line}: percent must be between -100 and 100 (negative = discount).` };
+    let printed: string | undefined;
+    if (x.value !== undefined) { const p = num(x.value, 'value'); if (typeof p !== 'string') return p; printed = p; }
+    return { kind: 'percent', label, value: '', rate, printed };
+  }
   if (x.type === 'tax' || x.rate !== undefined) {
     const rate = num(x.rate, 'rate');
     if (typeof rate !== 'string') return rate;
@@ -212,8 +225,8 @@ export async function verifyNumbers(input: VerifyInput, hooks: WaitHooks = {}): 
   for (let i = 0; i < input.items.length; i++) {
     const it = toItem(input.items[i], i + 1);
     if ('error' in it) return { status: 'bad_request', message: it.error, problem: { line: i + 1 } };
-    if (it.kind === 'tax' && !items.some(x => x.kind !== 'tax'))
-      return { status: 'bad_request', message: `Line ${i + 1}: a tax line needs the taxable lines above it.`, problem: { line: i + 1 } };
+    if ((it.kind === 'tax' || it.kind === 'percent') && !items.some(x => x.kind === 'amount' || x.kind === 'qty'))
+      return { status: 'bad_request', message: `Line ${i + 1}: a ${it.kind} line needs the lines it applies to above it.`, problem: { line: i + 1 } };
     items.push(it);
   }
   let expectedTotal: string | undefined;

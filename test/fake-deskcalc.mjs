@@ -17,6 +17,7 @@ const at = (t, n) => { const m = new RegExp(`\\b${n}="([^"]*)"`).exec(t); return
 let lines = [...xml.matchAll(/<LINE\b[^>]*\/>/g)].map(m => {
   const t = m[0];
   if (at(t, 'type') === 'tax') return { tax: true, rate: Number(at(t, 'rate')), incl: at(t, 'incl') === '1', label: at(t, 'label') ?? '' };
+  if (at(t, 'type') === 'percent') return { perc: true, rate: Number(at(t, 'rate')), label: at(t, 'label') ?? '' };
   const qty = at(t, 'qty');
   return { value: Number(at(t, 'value')), qty: qty ? Number(qty) : undefined, label: at(t, 'label') ?? '' };
 });
@@ -37,7 +38,7 @@ if (mode === 'limit') { status('limit_reached', '<PROBLEM line="2" value="150000
 write('.ack.xml', 'status="opened" decimal=".">\r\n<TABS count="2" slot="1"/>\r\n');
 setTimeout(() => {
   if (mode === 'cancel') { status('cancelled'); return; }
-  const pos = lines.filter(l => !l.tax);
+  const pos = lines.filter(l => !l.tax && !l.perc);
   if (mode === 'edit') {
     pos[1].value = 5;                                        // changed
     lines.splice(lines.indexOf(pos[1]) + 1, 0, { value: 78, label: 'inserted' }); // added
@@ -47,7 +48,11 @@ setTimeout(() => {
   let run = 0;
   const out = [];
   for (const l of lines) {
-    if (l.tax) {
+    if (l.perc) {
+      const p = run * l.rate / 100;
+      out.push(`<LINE value="${g(p)}" label="${esc(l.label)}" type="percent" rate="${l.rate}" base="${g(run)}"/>`);
+      run += p;
+    } else if (l.tax) {
       const t = l.incl ? -(run - run / (1 + l.rate / 100)) : run * l.rate / 100;
       out.push(`<LINE value="${g(t)}" label="${esc(l.label)}" type="tax" rate="${l.rate}" incl="${l.incl ? 1 : 0}" base="${g(run)}"/>`);
       run += t;

@@ -137,6 +137,26 @@ describe('deskcalc-verify over MCP', () => {
     await c2.close();
   });
 
+  it('handles a discount before tax and checks it', async () => {
+    const c = await connect({ FAKE_MODE: 'confirm' });
+    const r = await call(c, 'verify_numbers', {
+      title: 'Rabatt',
+      items: [
+        { label: 'Pos.1', qty: 2, price: 100, value: 200 },
+        { label: 'Pos.2', value: 50 },
+        { type: 'percent', rate: -3, label: 'Rabatt 3 %', value: -7.5 },
+        { type: 'tax', rate: 20, label: 'USt 20 %', value: 48.5 },
+      ],
+      expected_total: 291,
+    });
+    expect(r.status).toBe('confirmed');
+    expect(r.total).toBe('291');
+    expect(r.document_check.ok).toBe(true);
+    expect(r.document_check.checks.map((x: any) => x.check.split(' ')[0])).toEqual(['line', 'tax', 'discount', 'total']);
+    expect(r.corrections).toEqual([]);
+    await c.close();
+  });
+
   it('rejects a tax line without lines above', async () => {
     const c = await connect({});
     const r = await call(c, 'verify_numbers', { title: 'x', items: [{ type: 'tax', rate: 19 }] });

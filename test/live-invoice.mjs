@@ -8,9 +8,21 @@ import { dirname, join } from 'node:path';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const client = new Client({ name: 'live-invoice', version: '1' });
 await client.connect(new StdioClientTransport({ command: process.execPath, args: [join(root, 'dist', 'server.js')], env: process.env, stderr: 'inherit' }));
+const discount = process.argv[2] === 'discount';
 const r = await client.callTool({
   name: 'verify_numbers',
-  arguments: {
+  arguments: discount ? {
+    title: 'Rabatt',
+    items: [
+      { label: 'Pos.1 Fliesen', qty: 12, price: 18.9, value: 226.8 },
+      { label: 'Pos.2 Kleber', qty: 3, price: 14.5, value: 43.5 },
+      { type: 'percent', rate: -3, label: 'Rabatt 3 %', value: -8.11 },
+      { type: 'tax', rate: 20, label: 'USt 20 %', value: 52.44 },
+      { type: 'percent', rate: -2, label: 'Skonto 2 %', value: -6.29 },
+    ],
+    expected_total: 308.34,
+    wait_seconds: 60,
+  } : {
     title: 'Baumarkt',
     items: [
       { label: 'Pos.1 Wandfarbe', qty: 3, price: 42.01, value: 126.03 },

@@ -57,6 +57,10 @@ server.registerTool(
       'printed line total, checked against qty x price. (3) VAT/sales tax: {type:"tax", rate, included?, value?} - ' +
       'put it after the taxable lines; DeskCalc computes the tax from the subtotal above and recomputes it when the ' +
       'user corrects a line; value is the printed tax amount; included=true for gross prices ("incl. VAT"). ' +
+      '(4) discount/surcharge in percent on the subtotal above: {type:"percent", rate, value?} - rate -3 for ' +
+      '"3 % Rabatt", -2 for "2 % Skonto", +5 for a surcharge; value is the printed amount. A discount on a single ' +
+      'position: give that position with its discounted amount or as a separate negative amount line. Prices per ' +
+      '100/1000 units: convert to a unit price or give the line total as an amount. ' +
       'For invoices also pass expected_total (the printed amount payable).\n' +
       'Numbers: plain, "." as decimal separator, negative for credits. Labels: SHORT, max ~25 characters, ' +
       'e.g. "Pos.1 Wandfarbe" or "14.10. Hotel" - longer labels are cut off on the tape. Title: 1-3 words; it ' +
@@ -64,13 +68,13 @@ server.registerTool(
     inputSchema: {
       title: z.string().min(1).max(60).describe('Short tab name, e.g. "Baumarkt 10/26" or "Spesen Oktober".'),
       items: z.array(z.object({
-        type: z.enum(['amount', 'tax']).optional().describe('"tax" for a VAT/sales-tax line; default amount.'),
+        type: z.enum(['amount', 'tax', 'percent']).optional().describe('"tax" for a VAT/sales-tax line, "percent" for a discount/surcharge on the subtotal above; default amount.'),
         label: z.string().max(200).optional().describe('Short source reference, max ~25 characters.'),
         value: z.union([z.number(), z.string()]).optional()
           .describe('Amount. With qty/price: the printed line total (for the check). With type "tax": the printed tax amount (for the check).'),
         qty: z.union([z.number(), z.string()]).optional().describe('Quantity (with price).'),
         price: z.union([z.number(), z.string()]).optional().describe('Unit price (with qty).'),
-        rate: z.union([z.number(), z.string()]).optional().describe('Tax rate in percent, e.g. 19 or 20 (type "tax").'),
+        rate: z.union([z.number(), z.string()]).optional().describe('Percent: tax rate (type "tax", e.g. 19) or discount/surcharge (type "percent", e.g. -3 for 3 % discount).'),
         included: z.boolean().optional().describe('Tax is included in the amounts above (gross prices). Default false (tax added on top).'),
       })).min(1).max(500).describe('The lines in document order.'),
       expected_total: z.union([z.number(), z.string()]).optional()

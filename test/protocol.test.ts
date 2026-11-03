@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { encodeCp1252, decodeCp1252 } from '../src/cp1252.js';
-import { normaliseValue, buildJob, parseResult, diffLines, decimalSum, decimalMul, roundCents, cleanLabel, checkDocument, type Item } from '../src/protocol.js';
+import { normaliseValue, buildJob, parseResult, diffLines, decimalSum, decimalMul, roundCents, cleanLabel, checkDocument, roundedModel, type Item } from '../src/protocol.js';
 
 describe('cp1252', () => {
   it('round-trips €, umlauts and quotes', () => {
@@ -140,5 +140,41 @@ describe('invoice support', () => {
     const items: Item[] = [{ kind: 'amount', label: 'a', value: '120' }, { kind: 'tax', label: 't', value: '', rate: '20', included: true, printed: '20.00' }];
     const g2 = [{ value: '120', label: 'a' }, { value: '-20', label: 't', type: 'tax' as const, rate: '20', included: true, base: '120' }];
     expect(checkDocument(items, g2, '100', '120.00').every(c => c.ok)).toBe(true);
+  });
+});
+
+describe('rounding differences', () => {
+  // Found by search: netto 200.03, 3 % discount, 19 % VAT. The invoice rounds each
+  // step (discount -6.00, VAT 36.87) and prints 230.90; the exact result is 230.8946.
+  const items: Item[] = [
+    { kind: 'amount', label: 'Pos.1', value: '150.03' },
+    { kind: 'amount', label: 'Pos.2', value: '50' },
+    { kind: 'percent', label: 'Rabatt 3 %', value: '', rate: '-3', printed: '-6.00' },
+    { kind: 'tax', label: 'USt 19 %', value: '', rate: '19', printed: '36.87' },
+  ];
+  const got = [
+    { value: '150.03', label: 'Pos.1' },
+    { value: '50', label: 'Pos.2' },
+    { value: '-6.0009', label: 'Rabatt 3 %', type: 'percent' as const, rate: '-3', base: '200.03' },
+    { value: '36.865529', label: 'USt 19 %', type: 'tax' as const, rate: '19', included: false, base: '194.0291' },
+  ];
+  it('models the invoice rounding', () => {
+    expect(roundedModel(got).total).toBe('230.9');
+  });
+  it('accepts a 1-cent difference that the rounding explains', () => {
+    const c = checkDocument(items, got, '230.894629', '230.90');
+    const total = c.find(x => x.check === 'total')!;
+    expect(total).toMatchObject({ ok: true, document: '230.90', deskcalc: '230.89', difference: '-0.01' });
+    expect(total.rounding).toMatch(/rounded to the cent/);
+  });
+  it('still reports a 1-cent difference that the rounding does not explain', () => {
+    const c = checkDocument(items, got, '230.894629', '230.91');
+    expect(c.find(x => x.check === 'total')).toMatchObject({ ok: false, difference: '-0.02' });
+  });
+  it('accepts exact matches without a rounding note', () => {
+    const c = checkDocument(items, got, '230.894629', '230.89');
+    const total = c.find(x => x.check === 'total')!;
+    expect(total.ok).toBe(true);
+    expect(total.rounding).toBeUndefined();
   });
 });
