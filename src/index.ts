@@ -61,7 +61,10 @@ server.registerTool(
       '"3 % Rabatt", -2 for "2 % Skonto", +5 for a surcharge; value is the printed amount. A discount on a single ' +
       'position: give that position with its discounted amount or as a separate negative amount line. Prices per ' +
       '100/1000 units: convert to a unit price or give the line total as an amount. ' +
-      'For invoices also pass expected_total (the printed amount payable).\n' +
+      'For invoices also pass expected_total (the printed amount payable). ' +
+      'If you use a figure that is NOT printed on the document (e.g. a fee from a published table, a rate you ' +
+      'looked up), say so in the label, e.g. "(Tab. A, web)", and tell the user - the tape must not make your ' +
+      'own assumptions look like the document.\n' +
       'Numbers: plain, "." as decimal separator, negative for credits. Labels: SHORT, max ~25 characters, ' +
       'e.g. "Pos.1 Wandfarbe" or "14.10. Hotel" - longer labels are cut off on the tape. Title: 1-3 words; it ' +
       'becomes the tab name in DeskCalc.',

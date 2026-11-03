@@ -290,7 +290,9 @@ export function roundedModel(got: ResultLine[]): { amounts: Map<number, string>;
       amounts.set(i, amt);
       run = decimalSum([run, amt]);
     } else {
-      run = decimalSum([run, g.value]);
+      // Invoices round each line total to the cent (2.25 x 153.75 = 345.9375 -> 345.94).
+      // Found by the fuzz test (fuzz/fuzz_verify.py, seed 1, cases 6 and 7).
+      run = decimalSum([run, g.qty !== undefined ? roundCents(g.value) : g.value]);
     }
   });
   return { amounts, total: run };
@@ -339,10 +341,12 @@ export function checkDocument(sent: Item[], got: ResultLine[], total: string | u
         abs(s.printed), abs(g.value), abs(model.amounts.get(i) ?? g.value)));
   });
   if (expectedTotal !== undefined && total !== undefined) {
-    // With included tax the document's total is the gross amount: total + included tax.
-    const inclExact = got.filter(g => g.type === 'tax' && g.included).map(g => abs(g.value));
+    // With included tax the document's total is the gross amount: the tape subtracts the
+    // included tax, so gross = total - (signed tax line). Not "+ |tax|": for a credit note
+    // (negative base) the tax line is positive (found by the fuzz test, seed 2, case 22).
+    const inclExact = got.filter(g => g.type === 'tax' && g.included).map(g => neg(g.value));
     const inclRounded = got.map((g, i) => ({ g, i })).filter(x => x.g.type === 'tax' && x.g.included)
-      .map(x => abs(model.amounts.get(x.i) ?? x.g.value));
+      .map(x => neg(model.amounts.get(x.i) ?? x.g.value));
     checks.push(mk('total', expectedTotal, decimalSum([total, ...inclExact]), decimalSum([model.total, ...inclRounded])));
   }
   return checks;

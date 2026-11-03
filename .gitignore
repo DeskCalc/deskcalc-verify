@@ -2,3 +2,5 @@ node_modules/
 dist/
 *.log
 debug/
+fuzz/report-*.md
+fuzz/failures-*.json
