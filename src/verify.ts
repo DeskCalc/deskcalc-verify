@@ -27,6 +27,8 @@ export interface Outcome {
   lines?: ResultLine[];
   corrections?: Correction[];
   document_check?: { ok: boolean; checks: Check[] };
+  gt_outdated?: boolean;
+  rerun?: { title: string; items: VerifyItemInput[]; expected_total?: string; replace_review_id: string };
   confirmed_by_user?: boolean;
   problem?: { line?: number; value?: string };
   warnings?: string[];
@@ -38,6 +40,7 @@ interface Review {
   title: string;
   sent: Item[];
   expectedTotal?: string;
+  inputTitle: string;
   started: number;
   acked: boolean;
   final?: Outcome;
@@ -100,10 +103,22 @@ function fromResult(r: Review, res: DeskCalcResult): Outcome {
           rounded.map(c => `${c.check}: ${c.difference}`).join('; ') +
           ') - the document rounds tax/discounts to the cent before adding. This is not an error.';
     }
+    // Several blocks: the GT line on the tape is a snapshot (like the GT key). If the
+    // user corrected a block, it is outdated - offer a second pass with the
+    // confirmed lines so the user sees and confirms the corrected invoice.
+    let rerun: Outcome['rerun'];
+    if (res.gt?.outdated) {
+      rerun = { title: r.inputTitle, items: rerunItems(r.sent, res.lines), replace_review_id: r.id,
+                ...(r.expectedTotal !== undefined ? { expected_total: r.expectedTotal } : {}) };
+      message += ' IMPORTANT: the user corrected the tape, so the GT (grand total) line in DeskCalc is outdated - ' +
+        `the total above (${res.total}) is the correct sum of the corrected blocks. Call verify_numbers again with ` +
+        'the arguments in "rerun" (same tab in DeskCalc) so the user can confirm the corrected invoice, then use that result.';
+    }
     return {
       status: 'confirmed',
       message,
       total: res.total,
+      ...(rerun ? { gt_outdated: true, rerun } : {}),
       lines: res.lines,
       corrections,
       ...(checks.length ? { document_check: { ok: bad.length === 0, checks } } : {}),
@@ -158,7 +173,7 @@ async function waitFor(r: Review, waitS: number, hooks: WaitHooks): Promise<Outc
 }
 
 export interface VerifyItemInput {
-  type?: 'amount' | 'tax' | 'percent';
+  type?: 'amount' | 'tax' | 'percent' | 'group';
   label?: string;
   value?: number | string;      // amount; with qty/price: the printed line total; tax: the printed tax amount
   qty?: number | string;
@@ -172,6 +187,39 @@ export interface VerifyInput {
   items: VerifyItemInput[];
   expected_total?: number | string;
   wait_seconds?: number;
+  replace_review_id?: string;
+}
+
+/** Confirmed lines back into tool arguments (second pass); printed figures carried over. */
+function rerunItems(sent: Item[], got: ResultLine[]): VerifyItemInput[] {
+  const groups = sent.filter(s => s.kind === 'group');
+  const used = new Set<Item>();
+  const printedFor = (kind: string, label: string) => {
+    const s = sent.find(x => !used.has(x) && x.kind === kind && x.label === label);
+    if (s) used.add(s);
+    return s?.printed;
+  };
+  const out: VerifyItemInput[] = [];
+  let block = 0;
+  for (const g of got) {
+    if (groups.length && (g.block ?? 1) !== block) {
+      block = g.block ?? 1;
+      out.push({ type: 'group', label: groups[block - 1]?.label ?? '' });
+    }
+    if (g.type === 'tax') {
+      const p = printedFor('tax', g.label);
+      out.push({ type: 'tax', rate: g.rate, included: !!g.included, label: g.label, ...(p !== undefined ? { value: p } : {}) });
+    } else if (g.type === 'percent') {
+      const p = printedFor('percent', g.label);
+      out.push({ type: 'percent', rate: g.rate, label: g.label, ...(p !== undefined ? { value: p } : {}) });
+    } else if (g.qty !== undefined) {
+      const p = printedFor('qty', g.label);
+      out.push({ label: g.label, qty: g.qty, price: g.price, ...(p !== undefined ? { value: p } : {}) });
+    } else {
+      out.push({ label: g.label, value: g.value });
+    }
+  }
+  return out;
 }
 
 function toItem(x: VerifyItemInput, line: number): Item | { error: string } {
@@ -180,6 +228,7 @@ function toItem(x: VerifyItemInput, line: number): Item | { error: string } {
     const n = normaliseValue(v);
     return n.ok ? n.value : { error: `Line ${line}: ${what} ${n.error}` };
   };
+  if (x.type === 'group') return { kind: 'group', label, value: '' };
   if (x.type === 'percent') {
     const rate = num(x.rate, 'rate');
     if (typeof rate !== 'string') return rate;
@@ -222,13 +271,22 @@ export async function verifyNumbers(input: VerifyInput, hooks: WaitHooks = {}): 
   if (input.items.length > MAX_LINES) return { status: 'bad_request', message: `At most ${MAX_LINES} lines per verification.` };
 
   const items: Item[] = [];
+  let inBlock = 0;                                     // positions in the current block
   for (let i = 0; i < input.items.length; i++) {
     const it = toItem(input.items[i], i + 1);
     if ('error' in it) return { status: 'bad_request', message: it.error, problem: { line: i + 1 } };
-    if ((it.kind === 'tax' || it.kind === 'percent') && !items.some(x => x.kind === 'amount' || x.kind === 'qty'))
-      return { status: 'bad_request', message: `Line ${i + 1}: a ${it.kind} line needs the lines it applies to above it.`, problem: { line: i + 1 } };
+    if (it.kind === 'group') {
+      if (i > 0 && inBlock === 0)
+        return { status: 'bad_request', message: `Line ${i + 1}: the group above has no positions.`, problem: { line: i + 1 } };
+      inBlock = 0;
+    } else if (it.kind === 'tax' || it.kind === 'percent') {
+      if (inBlock === 0)
+        return { status: 'bad_request', message: `Line ${i + 1}: a ${it.kind} line needs the positions it applies to above it (in the same group).`, problem: { line: i + 1 } };
+    } else inBlock++;
     items.push(it);
   }
+  if (items.length && inBlock === 0)
+    return { status: 'bad_request', message: 'The last group has no positions.', problem: { line: items.length } };
   let expectedTotal: string | undefined;
   if (input.expected_total !== undefined) {
     const e = normaliseValue(input.expected_total);
@@ -243,11 +301,14 @@ export async function verifyNumbers(input: VerifyInput, hooks: WaitHooks = {}): 
 
   const id = randomBytes(4).toString('hex');
   const base = join(exchangeDir(), `v-${id}`);
-  const job = buildJob(id, input.title, items);
+  // Second pass: reuse the tab of the confirmed review it replaces.
+  const prev = input.replace_review_id ? reviews.get(input.replace_review_id) : undefined;
+  const replace = prev?.final?.status === 'confirmed' ? prev.id : undefined;
+  const job = buildJob(id, input.title, items, replace);
   writeFileSync(base + '.xml.tmp', job.bytes);
   renameSync(base + '.xml.tmp', base + '.xml');
 
-  const r: Review = { id, base, title: cleanLabel(input.title) || 'Verify', sent: items, expectedTotal, started: Date.now(), acked: false };
+  const r: Review = { id, base, title: cleanLabel(input.title) || 'Verify', inputTitle: input.title, sent: items, expectedTotal, started: Date.now(), acked: false };
   reviews.set(id, r);
   active = r;
   launchVerify(dc.path, base + '.xml');

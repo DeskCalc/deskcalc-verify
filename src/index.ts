@@ -61,6 +61,11 @@ server.registerTool(
       '"3 % Rabatt", -2 for "2 % Skonto", +5 for a surcharge; value is the printed amount. A discount on a single ' +
       'position: give that position with its discounted amount or as a separate negative amount line. Prices per ' +
       '100/1000 units: convert to a unit price or give the line total as an amount. ' +
+      '(5) MIXED TAX RATES (e.g. 20 % and 10 % on one invoice): a tax line always applies to the whole ' +
+      'subtotal above, so put the positions of each rate in their own group: {type:"group", label:"20 %"}, its ' +
+      'positions, its tax line; then {type:"group", label:"10 %"}, ... DeskCalc adds a GT (grand total) line. ' +
+      'If the result has gt_outdated=true (the user corrected a line, the GT line is a snapshot), call ' +
+      'verify_numbers again with exactly the arguments in "rerun" and use that second result. ' +
       'For invoices also pass expected_total (the printed amount payable). ' +
       'If you use a figure that is NOT printed on the document (e.g. a fee from a published table, a rate you ' +
       'looked up), say so in the label, e.g. "(Tab. A, web)", and tell the user - the tape must not make your ' +
@@ -71,7 +76,7 @@ server.registerTool(
     inputSchema: {
       title: z.string().min(1).max(60).describe('Short tab name, e.g. "Baumarkt 10/26" or "Spesen Oktober".'),
       items: z.array(z.object({
-        type: z.enum(['amount', 'tax', 'percent']).optional().describe('"tax" for a VAT/sales-tax line, "percent" for a discount/surcharge on the subtotal above; default amount.'),
+        type: z.enum(['amount', 'tax', 'percent', 'group']).optional().describe('"tax" VAT line, "percent" discount/surcharge on the subtotal above, "group" starts a block (one per tax rate); default amount.'),
         label: z.string().max(200).optional().describe('Short source reference, max ~25 characters.'),
         value: z.union([z.number(), z.string()]).optional()
           .describe('Amount. With qty/price: the printed line total (for the check). With type "tax": the printed tax amount (for the check).'),
@@ -83,6 +88,7 @@ server.registerTool(
       expected_total: z.union([z.number(), z.string()]).optional()
         .describe('The printed total / amount payable of the document, checked to the cent against the confirmed tape.'),
       wait_seconds: waitSchema,
+      replace_review_id: z.string().optional().describe('Second pass after gt_outdated: the review_id from "rerun" - DeskCalc reuses that tab.'),
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   },

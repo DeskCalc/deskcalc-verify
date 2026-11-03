@@ -178,3 +178,16 @@ describe('rounding differences', () => {
     expect(total.rounding).toBeUndefined();
   });
 });
+
+describe('blocks', () => {
+  it('rounds per block and adds the blocks', () => {
+    const got = [
+      { value: '0.5', label: 'a', qty: '1', price: '0.5', block: 1 },
+      { value: '0.025', label: 't', type: 'tax' as const, rate: '5', included: false, base: '0.5', block: 1 },
+      { value: '10.005', label: 'b', qty: '1', price: '10.005', block: 2 },
+      { value: '1.0005', label: 't2', type: 'tax' as const, rate: '10', included: false, base: '10.005', block: 2 },
+    ];
+    // block 1: 0.50 + 0.03 = 0.53; block 2: 10.01 + 1.00 = 11.01 -> 11.54
+    expect(roundedModel(got).total).toBe('11.54');
+  });
+});

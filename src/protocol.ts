@@ -3,6 +3,8 @@
 //           amount:   <LINE value="35" label=".."/>
 //           qty:      <LINE value="42.01" qty="3" label=".."/>     (unit price x quantity)
 //           tax:      <LINE type="tax" rate="19" incl="0|1" label=".."/>
+//           group:    <LINE type="group" label="20 %"/>  starts a block (own calculation on the
+//                     tape; tax/percent apply within the block; several blocks -> GT line)
 //           percent:  <LINE type="percent" rate="-3" label=".."/>  (discount -, surcharge +,
 //                     on the subtotal above; recomputed like tax)
 //                     A real DeskCalc tax line: DeskCalc computes the amount from the
@@ -18,7 +20,7 @@ import { encodeCp1252, decodeCp1252, type Encoded } from './cp1252.js';
 export const MAX_LINES = 500;
 export const MAX_LABEL = 60;
 
-export type ItemKind = 'amount' | 'qty' | 'tax' | 'percent';
+export type ItemKind = 'amount' | 'qty' | 'tax' | 'percent' | 'group';
 
 export interface Item {
   kind: ItemKind;
@@ -41,6 +43,7 @@ export interface ResultLine {
   rate?: string;
   included?: boolean;
   base?: string;
+  block?: number;
 }
 
 export interface DeskCalcResult {
@@ -50,6 +53,8 @@ export interface DeskCalcResult {
   lines: ResultLine[];
   problem?: { line?: number; value?: string };
   notes: string[];
+  blocks?: { index: number; label: string; total: string }[];
+  gt?: { value: string; fresh: string; outdated: boolean };
 }
 
 // ---------------------------------------------------------------- values
@@ -136,13 +141,15 @@ export function cleanLabel(label: string | undefined): string {
   return (label ?? '').replace(/[\r\n\t]+/g, ' ').trim().slice(0, MAX_LABEL);
 }
 
-export function buildJob(id: string, title: string, items: Item[]): Encoded {
+export function buildJob(id: string, title: string, items: Item[], replace?: string): Encoded {
   let xml = '<?xml version="1.0" encoding="windows-1252"?>\r\n';
-  xml += `<VERIFY version="1" id="${xmlEscape(id)}" decimal=".">\r\n`;
+  const rep = replace ? ` replace="${xmlEscape(replace)}"` : '';
+  xml += `<VERIFY version="1" id="${xmlEscape(id)}"${rep} decimal=".">\r\n`;
   xml += `<TITLE>${xmlEscape(cleanLabel(title) || 'Verify')}</TITLE>\r\n`;
   for (const it of items) {
     const label = `label="${xmlEscape(it.label)}"`;
-    if (it.kind === 'tax') xml += `<LINE type="tax" rate="${it.rate}" incl="${it.included ? 1 : 0}" ${label}/>\r\n`;
+    if (it.kind === 'group') xml += `<LINE type="group" ${label}/>\r\n`;
+    else if (it.kind === 'tax') xml += `<LINE type="tax" rate="${it.rate}" incl="${it.included ? 1 : 0}" ${label}/>\r\n`;
     else if (it.kind === 'percent') xml += `<LINE type="percent" rate="${it.rate}" ${label}/>\r\n`;
     else if (it.kind === 'qty') xml += `<LINE value="${it.price}" qty="${it.qty}" ${label}/>\r\n`;
     else xml += `<LINE value="${it.value}" ${label}/>\r\n`;
@@ -174,6 +181,8 @@ export function parseResult(bytes: Uint8Array): DeskCalcResult {
       const v = attr(t, k);
       if (v !== undefined) (line as any)[k] = k === 'op' ? v : plain(v);
     }
+    const block = attr(t, 'block');
+    if (block !== undefined) line.block = Number(block);
     if (attr(t, 'type') === 'tax') { line.type = 'tax'; line.included = attr(t, 'incl') === '1'; }
     else if (attr(t, 'type') === 'percent') line.type = 'percent';
     res.lines.push(line);
@@ -184,6 +193,11 @@ export function parseResult(bytes: Uint8Array): DeskCalcResult {
     res.problem = { line: line ? Number(line) : undefined, value: attr(prob[0], 'value') || undefined };
   }
   for (const m of xml.matchAll(/<NOTE>([^<]*)<\/NOTE>/g)) res.notes.push(m[1]);
+  for (const m of xml.matchAll(/<BLOCK\b[^>]*\/>/g)) {
+    (res.blocks ??= []).push({ index: Number(attr(m[0], 'index')), label: attr(m[0], 'label') ?? '', total: plain(attr(m[0], 'total') ?? '0') });
+  }
+  const gt = /<GT\b[^>]*\/>/.exec(xml);
+  if (gt) res.gt = { value: plain(attr(gt[0], 'value') ?? '0'), fresh: plain(attr(gt[0], 'fresh') ?? '0'), outdated: attr(gt[0], 'outdated') === '1' };
   return res;
 }
 
@@ -217,7 +231,7 @@ export function diffLines(sent: Item[], got: ResultLine[]): Correction[] {
     });
   }
 
-  const sp = sent.filter(s => s.kind !== 'tax' && s.kind !== 'percent');
+  const sp = sent.filter(s => s.kind === 'amount' || s.kind === 'qty');
   const gp = got.map((g, j) => ({ g, j })).filter(x => !x.g.type);
   const key = (label: string, value: string) => `${label}\u0000${Number(value)}`;
   const a = sp.map(s => key(s.label, s.value)), b = gp.map(x => key(x.g.label, x.g.value));
@@ -279,8 +293,11 @@ function mulDiv(a: string, b: string, c: string): string {
  */
 export function roundedModel(got: ResultLine[]): { amounts: Map<number, string>; total: string } {
   const amounts = new Map<number, string>();
+  const runs = new Map<number, string>();             // running total per block
   let run = '0';
+  let block = got.length ? (got[0].block ?? 1) : 1;
   got.forEach((g, i) => {
+    if ((g.block ?? 1) !== block) { runs.set(block, run); block = g.block ?? 1; run = '0'; }
     if (g.type === 'tax' || g.type === 'percent') {
       const rate = g.rate ?? '0';
       let amt: string;
@@ -295,7 +312,9 @@ export function roundedModel(got: ResultLine[]): { amounts: Map<number, string>;
       run = decimalSum([run, g.qty !== undefined ? roundCents(g.value) : g.value]);
     }
   });
-  return { amounts, total: run };
+  runs.set(block, run);
+  // Several blocks (one per tax rate): the document total is the sum of the blocks.
+  return { amounts, total: decimalSum([...runs.values()]) };
 }
 
 const ROUNDING_NOTE = 'matches when tax/discounts are rounded to the cent before adding (as invoices do); DeskCalc adds the exact amounts';

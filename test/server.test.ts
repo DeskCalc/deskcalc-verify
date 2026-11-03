@@ -157,6 +157,59 @@ describe('deskcalc-verify over MCP', () => {
     await c.close();
   });
 
+  const mixed = {
+    title: 'Gemischt',
+    items: [
+      { type: 'group', label: '20 %' },
+      { label: '01 Dienstleistung', qty: 2, price: 150, value: 300 },
+      { label: '03 Software-Lizenz', qty: 1, price: 200, value: 200 },
+      { type: 'tax', rate: 20, label: 'USt 20 %', value: 100 },
+      { type: 'group', label: '10 %' },
+      { label: '02 Fachbuch', qty: 3, price: 25, value: 75 },
+      { type: 'tax', rate: 10, label: 'USt 10 %', value: 7.5 },
+    ],
+    expected_total: 682.5,
+  };
+
+  it('checks mixed tax rates in blocks (one pass without corrections)', async () => {
+    const c = await connect({ FAKE_MODE: 'confirm' });
+    const r = await call(c, 'verify_numbers', mixed);
+    expect(r.status).toBe('confirmed');
+    expect(r.total).toBe('682.5');
+    expect(r.gt_outdated).toBeUndefined();
+    expect(r.document_check.ok).toBe(true);
+    expect(r.corrections).toEqual([]);
+    await c.close();
+  });
+
+  it('asks for a second pass when a correction made the GT line outdated', async () => {
+    const c = await connect({ FAKE_MODE: 'edit_qty_once' });
+    const r1 = await call(c, 'verify_numbers', mixed);
+    expect(r1.status).toBe('confirmed');
+    expect(r1.gt_outdated).toBe(true);
+    expect(r1.total).toBe('862.5');                          // fresh blocks, not the snapshot
+    expect(r1.corrections.map((x: any) => x.type)).toEqual(['changed']);
+    expect(r1.rerun.replace_review_id).toBe(r1.review_id);
+    expect(r1.rerun.items.filter((x: any) => x.type === 'group')).toHaveLength(2);
+    expect(r1.rerun.items.find((x: any) => x.label === '01 Dienstleistung').qty).toBe('3');
+    const r2 = await call(c, 'verify_numbers', r1.rerun);
+    expect(r2.status).toBe('confirmed');
+    expect(r2.gt_outdated).toBeUndefined();
+    expect(r2.corrections).toEqual([]);
+    expect(r2.total).toBe('862.5');
+    expect(r2.document_check.ok).toBe(false);                // invoice says 682.50, user says qty 3
+    await c.close();
+  });
+
+  it('rejects an empty group and a tax line at the start of a group', async () => {
+    const c = await connect({});
+    const e1 = await call(c, 'verify_numbers', { title: 'x', items: [{ type: 'group', label: 'A' }, { type: 'group', label: 'B' }, { value: 1 }] });
+    expect(e1.status).toBe('bad_request');
+    const e2 = await call(c, 'verify_numbers', { title: 'x', items: [{ value: 1 }, { type: 'group', label: 'B' }, { type: 'tax', rate: 10 }, { value: 2 }] });
+    expect(e2.status).toBe('bad_request');
+    await c.close();
+  });
+
   it('rejects a tax line without lines above', async () => {
     const c = await connect({});
     const r = await call(c, 'verify_numbers', { title: 'x', items: [{ type: 'tax', rate: 19 }] });

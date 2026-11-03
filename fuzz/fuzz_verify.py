@@ -34,8 +34,34 @@ SURCHARGES = ['5', '2.5', '10']
 def money(rng, lo=0.01, hi=500.0, decimals=2):
     return D(str(round(rng.uniform(lo, hi), decimals))).quantize(D(1).scaleb(-decimals))
 
+def gen_positions(rng, count, start=1):
+    items = []
+    for i in range(count):
+        label = f'Pos.{start + i}'
+        if rng.random() < 0.5:
+            dec = 2 if rng.random() < 0.8 else rng.choice([3, 4])
+            items.append({'label': label, 'qty': rng.choice([1, 2, 3, 5, 12, 0.5, 2.25]), 'price': str(money(rng, 0.01, 300, dec))})
+        else:
+            items.append({'label': label, 'value': str(money(rng))})
+    return items
+
+def gen_mixed(rng, n):
+    """Mixed tax rates: one group per rate (DeskCalc block + GT)."""
+    rates = rng.sample(TAX_RATES, rng.choice([2, 2, 3]))
+    items, k = [], 1
+    for r in rates:
+        items.append({'type': 'group', 'label': f'{r} %'})
+        pos = gen_positions(rng, rng.randint(1, 4), k); k += len(pos)
+        items += pos
+        if rng.random() < 0.2:
+            items.append({'type': 'percent', 'rate': rng.choice(DISCOUNTS), 'label': 'Rabatt'})
+        items.append({'type': 'tax', 'rate': r, 'label': f'USt {r} %'})
+    return {'title': f'Fuzz {n} gemischt', 'items': items}
+
 def gen_case(rng, n):
     """Random invoice: positions, optional discount, one tax (excl/incl), optional skonto."""
+    if rng.random() < 0.3:
+        return gen_mixed(rng, n)
     items = []
     for i in range(rng.randint(1, 7)):
         kind = rng.random()
@@ -63,7 +89,13 @@ def reference(case):
     figures (every line and every tax/discount rounded to the cent, as invoices do)."""
     run, doc = D(0), D(0)
     exact, printed = [], []
+    runs, docs = [], []
     for it in case['items']:
+        if it.get('type') == 'group':
+            if exact:                       # close the previous block
+                runs.append(run); docs.append(doc); run, doc = D(0), D(0)
+            exact.append(None); printed.append(None)
+            continue
         if it.get('type') == 'tax':
             r = D(it['rate'])
             if it.get('included'):
@@ -79,23 +111,28 @@ def reference(case):
             amt = pamt = D(it['value'])
         exact.append(amt); printed.append(pamt)
         run += amt; doc += pamt
+    runs.append(run); docs.append(doc)
+    run, doc = sum(runs, D(0)), sum(docs, D(0))              # several blocks: sum of blocks
     incl = [p for it, p in zip(case['items'], printed) if it.get('type') == 'tax' and it.get('included')]
     incl_x = [e for it, e in zip(case['items'], exact) if it.get('type') == 'tax' and it.get('included')]
     doc_total = doc + sum((-p for p in incl), D(0))          # gross for included tax
     exact_gross = run + sum((-e for e in incl_x), D(0))
-    return {'exact': exact, 'exact_total': run, 'printed': printed, 'doc_total': doc_total, 'exact_gross': exact_gross}
+    # group markers are structure: DeskCalc returns no line for them
+    keep = [i for i, it in enumerate(case['items']) if it.get('type') != 'group']
+    return {'exact': [exact[i] for i in keep], 'exact_total': run, 'printed': printed, 'doc_total': doc_total,
+            'exact_gross': exact_gross, 'keep': keep}
 
 def with_printed(case, ref, rng):
     """Attach printed figures; sometimes mis-print one of them (must be reported)."""
     c = json.loads(json.dumps(case))
     for it, p in zip(c['items'], ref['printed']):
-        if 'qty' in it or it.get('type') in ('tax', 'percent'):
+        if p is not None and ('qty' in it or it.get('type') in ('tax', 'percent')):
             it['value'] = str(p)
     c['expected_total'] = str(r2(ref['doc_total']))
     c['wait_seconds'] = 30
     wrong = None
     if rng.random() < 0.3:
-        targets = [i for i, it in enumerate(c['items']) if 'value' in it and ('qty' in it or it.get('type'))] + ['total']
+        targets = [i for i, it in enumerate(c['items']) if 'value' in it and ('qty' in it or it.get('type') in ('tax', 'percent'))] + ['total']
         t = rng.choice(targets)
         delta = rng.choice(['0.01', '-0.01', '0.10', '1.00', '-2.50'])
         if t == 'total':
@@ -106,7 +143,8 @@ def with_printed(case, ref, rng):
             v = D(c['items'][t]['value'])
             new = v + D(delta) if v >= 0 else v - D(delta)
             c['items'][t]['value'] = str(new)
-            valid = {abs(r2(ref['exact'][t])), abs(ref['printed'][t])}
+            ex = ref['exact'][ref['keep'].index(t)]
+            valid = {abs(r2(ex)), abs(ref['printed'][t])}
         # A mis-print that equals another valid way of computing (exact vs. rounded
         # per step) cannot be told apart from a correct document.
         wrong = {'target': t, 'delta': delta, 'ambiguous': abs(new) in valid}
@@ -181,8 +219,11 @@ def evaluate(case, ref, res, wrong):
     if res.get('status') != 'confirmed':
         return [f"status {res.get('status')}: {res.get('message', '')[:160]}"]
     lines = res['lines']
-    if len(lines) != len(case['items']):
-        errs.append(f'{len(lines)} lines back, {len(case["items"])} sent')
+    n_lines = len([it for it in case['items'] if it.get('type') != 'group'])
+    if len(lines) != n_lines:
+        errs.append(f'{len(lines)} lines back, {n_lines} sent')
+    if res.get('gt_outdated'):
+        errs.append('E GT reported outdated although nobody edited')
     for i, (l, e) in enumerate(zip(lines, ref['exact'])):
         # tax/percent amounts are computed from DeskCalc's subtotal (exact to ~1e-6)
         if (abs(D(str(l['value'])) - e) > D('0.000002')) if l.get('type') else not close(l['value'], e):
