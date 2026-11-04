@@ -40,6 +40,20 @@ telemetry. Claude sees the document you give it and the confirmed result. The ta
 records stay on your PC; job files are deleted after each check. Privacy policy:
 https://www.deskcalc.com/privacy-policy.html
 
+## What it runs and reads on your PC
+
+- **Runs:** `server/index.js` with Node.js - the DeskCalc Verify MCP server, bundled into one
+  file (source: `src/` in this repository). It starts DeskCalc (`deskcalc.exe /verify <job file>`).
+- **Reads, to find DeskCalc:** the Microsoft Store alias `%LOCALAPPDATA%\Microsoft\WindowsApps\deskcalc.exe`
+  and the registry values `HKCU\Software\DeskCalc\InstallDir` and
+  `HKLM\...\Uninstall\DeskCalc\InstallLocation` (via `reg query`).
+- **Reads, for the audit record only:** your Windows user name and PC name, printed as
+  "checked by" in the PDF you ask it to save. Nothing else is read and nothing is sent anywhere.
+- **Writes:** job and result files in `Documents\DeskCalc Verify` (deleted after each check) and,
+  on request, audit records (PDF) in `Documents\DeskCalc Verify\Audit records` or `Prüfnachweise`.
+- **Optional environment variables:** `DESKCALC_PATH` (path to deskcalc.exe) and
+  `DESKCALC_VERIFY_DIR` (exchange folder). No credentials or tokens are used.
+
 ## License
 
 MIT - see [LICENSE](LICENSE). Source: https://github.com/deskcalc/deskcalc-verify
