@@ -290,6 +290,35 @@ describe('audit record helpers', () => {
   });
 });
 
+describe('figures that only carry a wrong line total forward', () => {
+  // V1 sample invoice: 12 x 7.45 = 89.40 printed as 98.40; discount, VAT and total are
+  // computed correctly by the invoice from 98.40.
+  const pos: [string, string, string, string][] = [['8', '24.9', '199.2', '199.20'], ['3', '89.9', '269.7', '269.70'],
+    ['25', '2.35', '58.75', '58.75'], ['12', '7.45', '89.4', '98.40'], ['10', '5.95', '59.5', '59.50'], ['1', '9.5', '9.5', '9.50']];
+  const sent = (vat = '134.84'): Item[] => [
+    ...pos.map(([qty, price, value, printed], i) => ({ kind: 'qty' as const, label: `P${i + 1}`, qty, price, value, printed })),
+    { kind: 'percent', label: 'Discount', value: '', rate: '-3', printed: '-20.85' },
+    { kind: 'tax', label: 'VAT', value: '', rate: '20', printed: vat },
+  ];
+  const got = [
+    ...pos.map(([qty, price, value], i) => ({ value, label: `P${i + 1}`, qty, price })),
+    { value: '-20.5815', label: 'Discount', type: 'percent' as const, rate: '-3', base: '686.05' },
+    { value: '133.0937', label: 'VAT', type: 'tax' as const, rate: '20', base: '665.4685' },
+  ];
+  it('marks discount, VAT and total as following from the wrong line', () => {
+    const c = checkDocument(sent(), got, '798.5622', '809.04');
+    const bad = c.filter(x => !x.ok);
+    expect(bad.map(x => [x.check.split(':')[0].split(' on')[0], !!x.follows])).toEqual([
+      ['line 4 "P4"', false], ['tax 20 %', true], ['discount 3 %', true], ['total', true]]);
+  });
+  it('still reports a VAT amount that is wrong on its own', () => {
+    const c = checkDocument(sent('135.00'), got, '798.5622', '809.04');
+    const tax = c.find(x => x.check.startsWith('tax'))!;
+    expect(tax.ok).toBe(false);
+    expect(tax.follows).toBeFalsy();
+  });
+});
+
 describe('audit record layout', () => {
   const base = {
     reviewId: 'r1', title: 'RA-Buch', confirmedAt: new Date(2026, 10, 3), total: '7420.02', version: 't', lang: 'de' as const,

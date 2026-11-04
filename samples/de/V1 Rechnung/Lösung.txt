@@ -1,0 +1,10 @@
+V1 Rechnung prüfen - Musterlösung (für Video 1)
+
+"Rechnung RE-2026-2041.pdf" anhängen, Prompt "Check an invoice".
+Erwartet: 6 Positionen Menge x Einzelpreis, 3 % Rabatt, 20 % USt, Rechnungsbetrag.
+
+Fehler: Pos. 4 Haftnotizen 76x76, 12er-Pack: 12 x 7,45 = 89,40, gedruckt 98,40 (Zahlendreher, +9,00).
+Rabatt, USt und Rechnungsbetrag sind vom falschen Betrag aus richtig gerechnet - sie weichen nur deshalb ab.
+  gedruckt: Zwischensumme 695,05, Rabatt 20,85, netto 674,20, USt 134,84, Rechnungsbetrag 809,04
+  richtig:  Zwischensumme 686,05, Rabatt 20,58, netto 665,47, USt 133,09, Rechnungsbetrag 798,56
+Die Rechnung verlangt 10,48 EUR zu viel.

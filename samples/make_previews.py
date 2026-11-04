@@ -5,7 +5,8 @@ import fitz
 here = os.path.dirname(os.path.abspath(__file__))
 out = os.path.join(here, 'images')
 os.makedirs(out, exist_ok=True)
-pick = [('V4 Expenses/30 expense receipts October 2026.pdf', 0, 'v4-receipts.png'),
+pick = [('V1 Invoice/Invoice INV-2026-2041.pdf', 0, 'v1-invoice.png'),
+        ('V4 Expenses/30 expense receipts October 2026.pdf', 0, 'v4-receipts.png'),
         ('V5 Bank statement/Bank statement 10-2026 Sample Bank.pdf', 1, 'v5-statement-page2.png'),
         ('V6 Cross-footing/Sales day book Q3 2026.pdf', 0, 'v6-sales-day-book.png'),
         ('V7 Reconcile/Invoice INV-2026-1189.pdf', 0, 'v7-invoice.png'),

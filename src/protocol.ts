@@ -401,20 +401,37 @@ export function checkDocument(sent: Item[], got: ResultLine[], total: string | u
     if (columns.net !== undefined) checks.push(mk('net column', columns.net, decimalSum(rows.map(r => r.net))));
     if (columns.tax !== undefined) checks.push(mk('tax column', columns.tax, decimalSum(rows.map(r => r.tax))));
   }
+  // The document's own arithmetic: the tape with the line totals as PRINTED. A discount, tax,
+  // subtotal or total that is right from there only carries a wrong line total forward -
+  // it follows from that line and is not an error of its own.
+  const docModels: ReturnType<typeof roundedModel>[] = [];
+  const sentQty = sent.filter(s => s.kind === 'qty');
+  const gotQty = got.map((g, i) => ({ g, i })).filter(x => !x.g.type && x.g.qty !== undefined);
+  if (checks.some(c => !c.ok && c.check.startsWith('line ')) && sentQty.length === gotQty.length) {
+    const asPrinted = got.map(g => ({ ...g }));
+    gotQty.forEach(({ i }, k) => { if (sentQty[k].printed !== undefined) asPrinted[i].value = sentQty[k].printed!; });
+    docModels.push(roundedModel(asPrinted), roundedModel(asPrinted, true));
+  }
+  const carried = (c: Check, printed: (m: ReturnType<typeof roundedModel>) => string | undefined) => {
+    if (!c.ok && docModels.some(m => { const v = printed(m); return v !== undefined && roundCents(v) === c.document; })) c.follows = true;
+    return c;
+  };
   const idx = (type: 'tax' | 'percent') => got.map((g, i) => ({ g, i })).filter(x => x.g.type === type);
   const sentTax = sent.filter(s => s.kind === 'tax');
   idx('tax').forEach(({ g, i }, k) => {
     const s = sentTax[k];
     if (s?.printed !== undefined)   // printed tax is positive; an included tax comes back negative (subtracted)
-      checks.push(mk(`tax ${g.rate} %${g.included ? ' (included)' : ''} on ${roundCents(g.base ?? '0')}`,
-        abs(s.printed), abs(g.value), abs(model.amounts.get(i) ?? g.value), abs(lineModel.amounts.get(i) ?? g.value)));
+      checks.push(carried(mk(`tax ${g.rate} %${g.included ? ' (included)' : ''} on ${roundCents(g.base ?? '0')}`,
+        abs(s.printed), abs(g.value), abs(model.amounts.get(i) ?? g.value), abs(lineModel.amounts.get(i) ?? g.value)),
+        m => { const v = m.amounts.get(i); return v === undefined ? undefined : abs(v); }));
   });
   const sentPerc = sent.filter(s => s.kind === 'percent');
   idx('percent').forEach(({ g, i }, k) => {
     const s = sentPerc[k];
     if (s?.printed !== undefined)   // documents print discounts as "-7.50" or "7.50": compare magnitudes
-      checks.push(mk(`${Number(g.rate) < 0 ? 'discount' : 'surcharge'} ${abs(g.rate ?? '')} % on ${roundCents(g.base ?? '0')}`,
-        abs(s.printed), abs(g.value), abs(model.amounts.get(i) ?? g.value)));
+      checks.push(carried(mk(`${Number(g.rate) < 0 ? 'discount' : 'surcharge'} ${abs(g.rate ?? '')} % on ${roundCents(g.base ?? '0')}`,
+        abs(s.printed), abs(g.value), abs(model.amounts.get(i) ?? g.value)),
+        m => { const v = m.amounts.get(i); return v === undefined ? undefined : abs(v); }));
   });
   // Checkpoints (printed subtotal / carry-over): compared with the running total of the
   // confirmed tape at that point. The first wrong one locates the error; later ones with
@@ -424,7 +441,7 @@ export function checkDocument(sent: Item[], got: ResultLine[], total: string | u
   got.map((g, i) => ({ g, i })).filter(x => x.g.type === 'subtotal').forEach(({ g, i }, k) => {
     const s = sentSub[k];
     if (s?.printed === undefined || s.row) return;          // row checkpoints: checked above
-    const c = mk(`subtotal "${g.label}"`, s.printed, g.value, model.amounts.get(i), lineModel.amounts.get(i));
+    const c = carried(mk(`subtotal "${g.label}"`, s.printed, g.value, model.amounts.get(i), lineModel.amounts.get(i)), m => m.amounts.get(i));
     if (!c.ok && lastDiff !== undefined && c.difference === lastDiff) c.follows = true;
     if (!c.ok) lastDiff = c.difference; else lastDiff = undefined;
     checks.push(c);
@@ -440,7 +457,7 @@ export function checkDocument(sent: Item[], got: ResultLine[], total: string | u
       decimalSum([model.total, ...inclOf(model)]), decimalSum([lineModel.total, ...inclOf(lineModel)]));
     if (!c.ok && lastDiff !== undefined && c.difference === lastDiff) c.follows = true;
     if (!c.ok && rowDiff !== undefined && c.difference === rowDiff) c.follows = true;
-    checks.push(c);
+    checks.push(carried(c, m => decimalSum([m.total, ...inclOf(m)])));
   }
   return checks;
 }

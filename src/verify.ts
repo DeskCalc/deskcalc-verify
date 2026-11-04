@@ -119,7 +119,10 @@ function fromResult(r: Review, res: DeskCalcResult): Outcome {
     if (checks.length) {
       message += bad.length
         ? ` Document check: ${bad.length} of ${checks.length} figure(s) do NOT match the confirmed tape - report them to the user: ` +
-          bad.map(c => `${c.check}: document ${c.document}, DeskCalc ${c.deskcalc} (difference ${c.difference})${c.follows ? ' - follows from the difference above, not a new error' : ''}`).join('; ') + '.'
+          bad.map(c => `${c.check}: document ${c.document}, DeskCalc ${c.deskcalc} (difference ${c.difference})${c.follows ? ' - follows from the difference above, not a new error' : ''}`).join('; ') + '.' +
+          (bad.some(c => c.follows)
+            ? ` Only ${bad.filter(c => !c.follows).length} of these are errors of their own; the other ${bad.filter(c => c.follows).length} are computed correctly by the document from a wrong figure above - say so, and give the effect on the amount payable.`
+            : '')
         : ` Document check: all ${checks.length} printed figure(s) match the confirmed tape to the cent.`;
       const rounded = checks.filter(c => c.ok && c.rounding);
       if (rounded.length)

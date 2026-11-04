@@ -1,0 +1,10 @@
+V1 Check an invoice - solution (for video 1)
+
+Attach "Invoice INV-2026-2041.pdf", prompt "Check an invoice".
+Expected: 6 items qty x unit price, 3 % discount, VAT 20 %, total due.
+
+Error: item 4 Sticky notes 76x76, pack of 12: 12 x 7.45 = 89.40, printed 98.40 (transposed digits, +9.00).
+Discount, VAT and total are computed correctly from the wrong amount - they differ only because of it.
+  printed: subtotal 695.05, discount 20.85, net 674.20, VAT 134.84, total due 809.04
+  correct: subtotal 686.05, discount 20.58, net 665.47, VAT 133.09, total due 798.56
+The invoice asks for 10.48 GBP too much.

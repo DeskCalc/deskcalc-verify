@@ -21953,28 +21953,57 @@ function checkDocument(sent, got, total, expectedTotal, columns = {}) {
     if (columns.net !== void 0) checks.push(mk("net column", columns.net, decimalSum(rows.map((r) => r.net))));
     if (columns.tax !== void 0) checks.push(mk("tax column", columns.tax, decimalSum(rows.map((r) => r.tax))));
   }
+  const docModels = [];
+  const sentQty = sent.filter((s) => s.kind === "qty");
+  const gotQty = got.map((g, i) => ({ g, i })).filter((x) => !x.g.type && x.g.qty !== void 0);
+  if (checks.some((c) => !c.ok && c.check.startsWith("line ")) && sentQty.length === gotQty.length) {
+    const asPrinted = got.map((g) => ({ ...g }));
+    gotQty.forEach(({ i }, k) => {
+      if (sentQty[k].printed !== void 0) asPrinted[i].value = sentQty[k].printed;
+    });
+    docModels.push(roundedModel(asPrinted), roundedModel(asPrinted, true));
+  }
+  const carried = (c, printed) => {
+    if (!c.ok && docModels.some((m) => {
+      const v = printed(m);
+      return v !== void 0 && roundCents(v) === c.document;
+    })) c.follows = true;
+    return c;
+  };
   const idx = (type) => got.map((g, i) => ({ g, i })).filter((x) => x.g.type === type);
   const sentTax = sent.filter((s) => s.kind === "tax");
   idx("tax").forEach(({ g, i }, k) => {
     const s = sentTax[k];
     if (s?.printed !== void 0)
-      checks.push(mk(
-        `tax ${g.rate} %${g.included ? " (included)" : ""} on ${roundCents(g.base ?? "0")}`,
-        abs(s.printed),
-        abs(g.value),
-        abs(model.amounts.get(i) ?? g.value),
-        abs(lineModel.amounts.get(i) ?? g.value)
+      checks.push(carried(
+        mk(
+          `tax ${g.rate} %${g.included ? " (included)" : ""} on ${roundCents(g.base ?? "0")}`,
+          abs(s.printed),
+          abs(g.value),
+          abs(model.amounts.get(i) ?? g.value),
+          abs(lineModel.amounts.get(i) ?? g.value)
+        ),
+        (m) => {
+          const v = m.amounts.get(i);
+          return v === void 0 ? void 0 : abs(v);
+        }
       ));
   });
   const sentPerc = sent.filter((s) => s.kind === "percent");
   idx("percent").forEach(({ g, i }, k) => {
     const s = sentPerc[k];
     if (s?.printed !== void 0)
-      checks.push(mk(
-        `${Number(g.rate) < 0 ? "discount" : "surcharge"} ${abs(g.rate ?? "")} % on ${roundCents(g.base ?? "0")}`,
-        abs(s.printed),
-        abs(g.value),
-        abs(model.amounts.get(i) ?? g.value)
+      checks.push(carried(
+        mk(
+          `${Number(g.rate) < 0 ? "discount" : "surcharge"} ${abs(g.rate ?? "")} % on ${roundCents(g.base ?? "0")}`,
+          abs(s.printed),
+          abs(g.value),
+          abs(model.amounts.get(i) ?? g.value)
+        ),
+        (m) => {
+          const v = m.amounts.get(i);
+          return v === void 0 ? void 0 : abs(v);
+        }
       ));
   });
   const sentSub = sent.filter((s) => s.kind === "subtotal");
@@ -21982,7 +22011,7 @@ function checkDocument(sent, got, total, expectedTotal, columns = {}) {
   got.map((g, i) => ({ g, i })).filter((x) => x.g.type === "subtotal").forEach(({ g, i }, k) => {
     const s = sentSub[k];
     if (s?.printed === void 0 || s.row) return;
-    const c = mk(`subtotal "${g.label}"`, s.printed, g.value, model.amounts.get(i), lineModel.amounts.get(i));
+    const c = carried(mk(`subtotal "${g.label}"`, s.printed, g.value, model.amounts.get(i), lineModel.amounts.get(i)), (m) => m.amounts.get(i));
     if (!c.ok && lastDiff !== void 0 && c.difference === lastDiff) c.follows = true;
     if (!c.ok) lastDiff = c.difference;
     else lastDiff = void 0;
@@ -22000,7 +22029,7 @@ function checkDocument(sent, got, total, expectedTotal, columns = {}) {
     );
     if (!c.ok && lastDiff !== void 0 && c.difference === lastDiff) c.follows = true;
     if (!c.ok && rowDiff !== void 0 && c.difference === rowDiff) c.follows = true;
-    checks.push(c);
+    checks.push(carried(c, (m) => decimalSum([m.total, ...inclOf(m)])));
   }
   return checks;
 }
@@ -22390,7 +22419,7 @@ function fromResult(r, res) {
     const bad = checks.filter((c) => !c.ok);
     let message = corrections.length ? `The user checked the tape in DeskCalc, made ${corrections.length} correction(s) and pressed Confirm. Use the total below.` : "The user checked every line in DeskCalc and pressed Confirm without changes. Use the total below.";
     if (checks.length) {
-      message += bad.length ? ` Document check: ${bad.length} of ${checks.length} figure(s) do NOT match the confirmed tape - report them to the user: ` + bad.map((c) => `${c.check}: document ${c.document}, DeskCalc ${c.deskcalc} (difference ${c.difference})${c.follows ? " - follows from the difference above, not a new error" : ""}`).join("; ") + "." : ` Document check: all ${checks.length} printed figure(s) match the confirmed tape to the cent.`;
+      message += bad.length ? ` Document check: ${bad.length} of ${checks.length} figure(s) do NOT match the confirmed tape - report them to the user: ` + bad.map((c) => `${c.check}: document ${c.document}, DeskCalc ${c.deskcalc} (difference ${c.difference})${c.follows ? " - follows from the difference above, not a new error" : ""}`).join("; ") + "." + (bad.some((c) => c.follows) ? ` Only ${bad.filter((c) => !c.follows).length} of these are errors of their own; the other ${bad.filter((c) => c.follows).length} are computed correctly by the document from a wrong figure above - say so, and give the effect on the amount payable.` : "") : ` Document check: all ${checks.length} printed figure(s) match the confirmed tape to the cent.`;
       const rounded = checks.filter((c) => c.ok && c.rounding);
       if (rounded.length)
         message += ` ${rounded.length} of them differ from DeskCalc's exact result by a rounding amount only (` + rounded.map((c) => `${c.check}: ${c.difference}`).join("; ") + ") - the document rounds tax/discounts to the cent before adding. This is not an error.";

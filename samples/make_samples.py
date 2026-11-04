@@ -8,7 +8,7 @@ Amounts are computed with Decimal, so the solutions are exact.
     python samples/make_samples.py <out-dir>  # e.g. Documents\DeskCalc Verify
 Needs PyMuPDF (pip install pymupdf).
 """
-import io, os, random, sys
+import io, os, random, re, sys
 from decimal import Decimal as D, ROUND_HALF_UP
 import fitz
 
@@ -431,8 +431,116 @@ class Maker:
                           for d, x, cur, a, k, e, ep in rows)
         self.write(f, t['sol'], t['v8sol'].format(file=t['v8file'], lines=lines, tt=A(tt), pt=A(pt)))
 
+
+    # ------------------------------------------------------------ V1 Invoice (video 1)
+    def v1(self):
+        """A plain supplier invoice: qty x price, discount, VAT, total due. One line total is
+        misprinted to the customer's disadvantage, so the invoice asks for too much."""
+        A = self.amt
+        de = self.lang == 'de'
+        L = dict(
+            dir='V1 Rechnung' if de else 'V1 Invoice',
+            file='Rechnung RE-2026-2041.pdf' if de else 'Invoice INV-2026-2041.pdf',
+            title='Rechnung' if de else 'Invoice', no='RE-2026-2041' if de else 'INV-2026-2041',
+            sup='Muster Büroausstattung GmbH' if de else 'Example Stationery Ltd',
+            sup_addr='Gewerbepark 7, 8010 Graz' if de else '7 Trade Park, Sampleford SF2 7XX',
+            vatid='UID ATU00000000 (Muster)' if de else 'VAT reg. GB 000 0000 00 (sample)',
+            to='Rechnung an' if de else 'Bill to',
+            meta=[('Rechnungsdatum', '02.11.2026'), ('Lieferdatum', '30.10.2026'), ('Kundennummer', 'K-10457'), ('Fällig', '16.11.2026')] if de else
+                 [('Invoice date', '02/11/2026'), ('Delivery date', '30/10/2026'), ('Customer no.', 'C-10457'), ('Due', '16/11/2026')],
+            cols=['Pos.', 'Artikel', 'Menge', 'Einzelpreis', 'Betrag'] if de else ['Item', 'Description', 'Qty', 'Unit price', 'Amount'],
+            items=[('Kopierpapier A4 80 g, Karton 5x500', 8, '24.90'), ('Toner schwarz TX-200', 3, '89.90'),
+                   ('Ordner breit, blau', 25, '2.35'), ('Haftnotizen 76x76, 12er-Pack', 12, '7.45'),
+                   ('Whiteboard-Marker, 4er-Pack', 10, '5.95'), ('Versand', 1, '9.50')] if de else
+                  [('Copy paper A4 80 gsm, box of 5 reams', 8, '24.90'), ('Toner cartridge black TX-200', 3, '89.90'),
+                   ('Lever arch files, blue', 25, '2.35'), ('Sticky notes 76x76, pack of 12', 12, '7.45'),
+                   ('Whiteboard markers, pack of 4', 10, '5.95'), ('Delivery', 1, '9.50')],
+            sub='Zwischensumme' if de else 'Subtotal', disc='abzüglich 3 % Rabatt' if de else 'Less 3 % discount',
+            net='Nettobetrag' if de else 'Net amount', vat='zuzüglich 20 % USt' if de else 'VAT 20 %',
+            total='Rechnungsbetrag' if de else 'Total due', cur='EUR' if de else 'GBP',
+            pay=('Zahlbar bis 16.11.2026 ohne Abzug. Musterbank AG, IBAN AT00 0000 0000 0000 0000 (Muster). Bitte Rechnungsnummer angeben.' if de else
+                 'Payment due by 16/11/2026. Sample Bank plc, sort code 00-00-00, account 00000000 (sample). Please quote the invoice number.'),
+            thanks='Vielen Dank für Ihren Auftrag.' if de else 'Thank you for your order.',
+        )
+        rows, printed = [], []
+        for i, (n, q, pr) in enumerate(L['items']):
+            pr = D(pr); amt = r2(q * pr)
+            pa = D('98.40') if i == 3 else amt          # error: 12 x 7.45 = 89.40, printed 98.40
+            rows.append((n, q, pr, amt, pa)); printed.append(pa)
+        sub_p = sum(printed); disc_p = r2(sub_p * D('0.03')); net_p = sub_p - disc_p
+        vat_p = r2(net_p * D('0.2')); tot_p = net_p + vat_p
+        sub_t = sum(a for *_, a, _ in rows); disc_t = r2(sub_t * D('0.03')); net_t = sub_t - disc_t
+        vat_t = r2(net_t * D('0.2')); tot_t = net_t + vat_t
+        # Laid out with text at fixed positions: the HTML renderer shrinks tables to their content.
+        f = os.path.join(self.out, L['dir'])
+        doc = fitz.open(); pg = doc.new_page(width=A4.width, height=A4.height)
+        W, X0, X1 = A4.width, 48, A4.width - 48
+        INK, SOFT, BLUE, LINE = (0.13, 0.13, 0.13), (0.4, 0.4, 0.4), (0.12, 0.31, 0.47), (0.8, 0.8, 0.8)
+        def txt(x, y, t, size=9.5, font='helv', color=INK, right=False):
+            if right: x -= fitz.get_text_length(t, fontname=font, fontsize=size)
+            pg.insert_text((x, y), t, fontsize=size, fontname=font, color=color)
+        def line(y, w=0.6, color=LINE, x0=X0, x1=X1): pg.draw_line((x0, y), (x1, y), color=color, width=w)
+        # header
+        txt(X0, 72, L['sup'], 17, 'hebo', BLUE)
+        txt(X0, 88, L['sup_addr'], 8.5, color=SOFT); txt(X0, 99, L['vatid'], 8.5, color=SOFT)
+        txt(X1, 74, L['title'].upper(), 22, 'hebo', right=True); txt(X1, 92, L['no'], 10, 'hebo', right=True)
+        line(114, 1.2, BLUE)
+        # bill to + meta
+        txt(X0, 136, L['to'], 8, color=SOFT)
+        for i, part in enumerate(self.t['firm'].split(', ')): txt(X0, 150 + i * 13, part, 10)
+        for i, (k, v) in enumerate(L['meta']):
+            txt(330, 136 + i * 14, k, 8.5, color=SOFT); txt(X1, 136 + i * 14, v, 9.5, right=True)
+        # table
+        c = L['cols']
+        cx = {'no': X0, 'desc': X0 + 34, 'qty': 360, 'price': 440, 'amt': X1}
+        y = 215
+        txt(cx['no'], y, c[0], 8.5, 'hebo'); txt(cx['desc'], y, c[1], 8.5, 'hebo')
+        txt(cx['qty'], y, c[2], 8.5, 'hebo', right=True); txt(cx['price'], y, c[3], 8.5, 'hebo', right=True)
+        txt(cx['amt'], y, f"{c[4]} {L['cur']}", 8.5, 'hebo', right=True)
+        line(y + 6, 0.9, INK)
+        y += 22
+        for i, (n, q, pr, amt, pa) in enumerate(rows):
+            txt(cx['no'], y, str(i + 1)); txt(cx['desc'], y, n)
+            txt(cx['qty'], y, str(q), right=True); txt(cx['price'], y, A(pr), right=True); txt(cx['amt'], y, A(pa), right=True)
+            line(y + 7); y += 20
+        y += 6
+        for label, v, bold in ((L['sub'], sub_p, False), (L['disc'], -disc_p, False), (L['net'], net_p, False), (L['vat'], vat_p, False)):
+            txt(300, y, label); txt(cx['amt'], y, A(v), right=True); y += 17
+        line(y - 10, 0.9, INK, 300); y += 6
+        txt(300, y, L['total'], 11, 'hebo'); txt(cx['amt'], y, f"{L['cur']} {A(tot_p)}", 11, 'hebo', right=True)
+        line(y + 6, 0.9, INK, 300); line(y + 8.5, 0.9, INK, 300)
+        y += 50
+        for i, part in enumerate(re.findall(r'.{1,95}(?:\s|$)', L['pay'])): txt(X0, y + i * 12, part.strip(), 8.5, color=SOFT)
+        txt(X0, y + 40, L['thanks'], 9.5)
+        txt(W / 2 - fitz.get_text_length(self.t['sample'], fontname='helv', fontsize=7.5) / 2, A4.height - 30, self.t['sample'], 7.5, color=SOFT)
+        self.save(doc, f, L['file'])
+        diff = tot_p - tot_t
+        if de:
+            sol = f"""V1 Rechnung prüfen - Musterlösung (für Video 1)
+
+"{L['file']}" anhängen, Prompt "Check an invoice".
+Erwartet: 6 Positionen Menge x Einzelpreis, 3 % Rabatt, 20 % USt, Rechnungsbetrag.
+
+Fehler: Pos. 4 {L['items'][3][0]}: 12 x 7,45 = {A(D('89.40'))}, gedruckt {A(D('98.40'))} (Zahlendreher, +9,00).
+Rabatt, USt und Rechnungsbetrag sind vom falschen Betrag aus richtig gerechnet - sie weichen nur deshalb ab.
+  gedruckt: Zwischensumme {A(sub_p)}, Rabatt {A(disc_p)}, netto {A(net_p)}, USt {A(vat_p)}, Rechnungsbetrag {A(tot_p)}
+  richtig:  Zwischensumme {A(sub_t)}, Rabatt {A(disc_t)}, netto {A(net_t)}, USt {A(vat_t)}, Rechnungsbetrag {A(tot_t)}
+Die Rechnung verlangt {A(diff)} EUR zu viel."""
+        else:
+            sol = f"""V1 Check an invoice - solution (for video 1)
+
+Attach "{L['file']}", prompt "Check an invoice".
+Expected: 6 items qty x unit price, 3 % discount, VAT 20 %, total due.
+
+Error: item 4 {L['items'][3][0]}: 12 x 7.45 = {A(D('89.40'))}, printed {A(D('98.40'))} (transposed digits, +9.00).
+Discount, VAT and total are computed correctly from the wrong amount - they differ only because of it.
+  printed: subtotal {A(sub_p)}, discount {A(disc_p)}, net {A(net_p)}, VAT {A(vat_p)}, total due {A(tot_p)}
+  correct: subtotal {A(sub_t)}, discount {A(disc_t)}, net {A(net_t)}, VAT {A(vat_t)}, total due {A(tot_t)}
+The invoice asks for {A(diff)} GBP too much."""
+        self.write(f, self.t['sol'], sol)
+
     def all(self):
-        for fn in (self.v4, self.v5, self.v6, self.v7, self.v8): fn()
+        for fn in (self.v1, self.v4, self.v5, self.v6, self.v7, self.v8): fn()
         self.write(self.out, self.t['readme'], self.t['readme_text'])
 
 
