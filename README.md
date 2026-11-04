@@ -107,7 +107,9 @@ document_check: 3 of 19 figures do NOT match the confirmed tape
 
 ## Configuration
 
-Claude Desktop (`claude_desktop_config.json`):
+Claude Desktop: download [`deskcalc-verify.mcpb`](https://www.deskcalc.com/downloads/deskcalc-verify.mcpb)
+and double-click it - Claude Desktop installs the extension (it brings its own Node.js).
+Or by hand in `claude_desktop_config.json`:
 
 ```json
 { "mcpServers": { "deskcalc-verify": { "command": "npx", "args": ["-y", "@deskcalc/verify"] } } }
@@ -136,6 +138,7 @@ npm run build     # dist/server.js
 npm test          # unit + end-to-end tests with a fake DeskCalc
 python fuzz/fuzz_verify.py --cases 200 --seed 6   # random invoices against the real DeskCalc (probe mode)
 node test/live-client.mjs 40   # against a real DeskCalc (set DESKCALC_PATH; run from PowerShell)
+npm run mcpb                   # dist/deskcalc-verify.mcpb (Claude Desktop extension)
 python samples/make_samples.py # sample documents (PDF, German + English) with deliberate errors
 python samples/make_previews.py # README images of the English samples
 ```

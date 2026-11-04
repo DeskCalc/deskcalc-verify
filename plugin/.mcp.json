@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "deskcalc-verify": {
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "@deskcalc/verify"]
+    }
+  }
+}

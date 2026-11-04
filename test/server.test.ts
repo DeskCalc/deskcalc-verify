@@ -380,6 +380,15 @@ describe('deskcalc-verify over MCP', () => {
     await c.close();
   });
 
+  it('ignores an empty .mcpb setting (unresolved placeholder) and searches as usual', async () => {
+    for (const v of ['${user_config.deskcalc_path}', '  ']) {
+      const c = await connect({ DESKCALC_PATH: v });
+      const s = await call(c, 'deskcalc_status', {});
+      expect(s.kind).not.toBe('custom');
+      await c.close();
+    }
+  });
+
   it('reports a missing DeskCalc', async () => {
     const c = await connect({ DESKCALC_PATH: join(dir, 'nope.exe') });
     const r = await call(c, 'verify_numbers', { title: 'x', items });

@@ -1,0 +1,11 @@
+{
+  "name": "deskcalc-verify",
+  "displayName": "DeskCalc Verify",
+  "version": "1.0.0",
+  "description": "A human checks the figures Claude read from invoices, receipts, bank statements or tables on a DeskCalc tape and confirms them before Claude relies on the total. Windows, runs locally.",
+  "author": { "name": "DeskCalc GbR", "url": "https://www.deskcalc.com/" },
+  "homepage": "https://www.deskcalc.com/deskcalc-verify.html",
+  "repository": "https://github.com/deskcalc/deskcalc-verify",
+  "license": "MIT",
+  "keywords": ["deskcalc", "invoice", "receipts", "audit", "bookkeeping", "verification", "human-in-the-loop"]
+}

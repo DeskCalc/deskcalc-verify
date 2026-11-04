@@ -1,0 +1,15 @@
+{
+  "name": "deskcalc",
+  "description": "Plugins from DeskCalc GbR: human-checked figures for Claude with DeskCalc, the Windows adding machine app.",
+  "owner": {
+    "name": "DeskCalc GbR",
+    "url": "https://www.deskcalc.com/"
+  },
+  "plugins": [
+    {
+      "name": "deskcalc-verify",
+      "source": "./plugin",
+      "description": "A human checks the figures Claude read from invoices, receipts, statements or tables on a DeskCalc tape and confirms them before Claude relies on the total."
+    }
+  ]
+}

@@ -1,0 +1,76 @@
+{
+  "manifest_version": "0.3",
+  "name": "deskcalc-verify",
+  "display_name": "DeskCalc Verify",
+  "version": "1.0.0",
+  "description": "A human checks and confirms the figures an AI extracted - in DeskCalc, before the AI relies on the total.",
+  "long_description": "The AI hands the amounts it read from invoices, receipts, bank statements or tables to DeskCalc as a labelled tape. You check every line, correct what is wrong and press Confirm in DeskCalc; only then does the AI get the confirmed total, your corrections and a check of the printed figures to the cent. Checks VAT, quantity x price, discounts, mixed VAT rates, carry-overs, cross-footing and foreign currency; saves an audit record as PDF. Runs locally: no network connection, no account, no telemetry. Requires Windows and DeskCalc 11.3 or later.",
+  "author": {
+    "name": "DeskCalc GbR",
+    "url": "https://www.deskcalc.com/"
+  },
+  "homepage": "https://www.deskcalc.com/deskcalc-verify.html",
+  "documentation": "https://www.deskcalc.com/deskcalc-verify.html",
+  "support": "https://www.deskcalc.com/contact.html",
+  "icon": "icon.png",
+  "license": "MIT",
+  "keywords": [
+    "deskcalc",
+    "adding machine",
+    "verification",
+    "invoice",
+    "audit",
+    "human-in-the-loop"
+  ],
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/server/index.js"
+      ],
+      "env": {
+        "DESKCALC_PATH": "${user_config.deskcalc_path}"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "verify_numbers",
+      "description": "Open the figures as a labelled tape in DeskCalc; the user checks, corrects and confirms."
+    },
+    {
+      "name": "get_verification",
+      "description": "Wait for the confirmed result of a pending check."
+    },
+    {
+      "name": "compare_verifications",
+      "description": "Reconcile two confirmed tapes (invoice vs. order, delivery note or payment)."
+    },
+    {
+      "name": "save_audit_record",
+      "description": "Save a PDF audit record of a confirmed check for the working papers."
+    },
+    {
+      "name": "deskcalc_status",
+      "description": "Is DeskCalc installed, is a check open."
+    }
+  ],
+  "compatibility": {
+    "platforms": [
+      "win32"
+    ],
+    "runtimes": {
+      "node": ">=20.0.0"
+    }
+  },
+  "user_config": {
+    "deskcalc_path": {
+      "type": "file",
+      "title": "DeskCalc program (optional)",
+      "description": "Only needed if DeskCalc is not found automatically (Microsoft Store and website versions are found).",
+      "required": false
+    }
+  }
+}

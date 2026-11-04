@@ -27,7 +27,9 @@ function exists(p: string): boolean {
 
 /** Order: DESKCALC_PATH, Store alias (DeskCalc 11.3+), website install (registry). */
 export function findDeskCalc(): DeskCalcInfo {
-  const custom = process.env.DESKCALC_PATH;
+  // An optional .mcpb setting left empty may arrive as "" or as the unresolved "${user_config...}".
+  const raw = process.env.DESKCALC_PATH?.trim();
+  const custom = raw && !raw.includes('${') ? raw : undefined;
   if (custom) return exists(custom) ? { found: true, kind: 'custom', path: custom } : { found: false };
 
   const local = process.env.LOCALAPPDATA;
