@@ -23,7 +23,8 @@
     "build": "tsc --noEmit && esbuild src/index.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/server.js --banner:js=\"#!/usr/bin/env node\" --legal-comments=none",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "mcpb": "npm run build && node scripts/pack-mcpb.mjs"
+    "mcpb": "npm run build && node scripts/pack-mcpb.mjs",
+    "plugin": "npm run build && node scripts/pack-plugin.mjs"
   },
   "keywords": [
     "mcp",

@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "deskcalc-verify": {
-      "command": "cmd",
-      "args": ["/c", "npx", "-y", "@deskcalc/verify"]
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/server/index.js"]
     }
   }
 }
