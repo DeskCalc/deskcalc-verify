@@ -2,6 +2,9 @@
 
 Let a human check and confirm numbers in **DeskCalc** before an AI agent relies on the total.
 
+**[deskcalc.com](https://www.deskcalc.com/)** · [Download DeskCalc](https://www.deskcalc.com/download-windows-tape-calculator.html?from=verify) ·
+[Pricing](https://www.deskcalc.com/pricing.html?from=verify) · [Contact](https://www.deskcalc.com/contact.html)
+
 An agent (Claude Desktop / Claude for Work, Codex, …) extracts amounts from receipts,
 statements or invoices and calls `verify_numbers`. The lines open as a labelled tape in
 DeskCalc on the user's Windows PC; the user checks every line, corrects what is wrong and
