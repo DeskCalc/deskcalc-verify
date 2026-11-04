@@ -115,7 +115,7 @@ and double-click it - Claude Desktop installs the extension (it brings its own N
 Or by hand in `claude_desktop_config.json`:
 
 ```json
-{ "mcpServers": { "deskcalc-verify": { "command": "npx", "args": ["-y", "@deskcalc/verify"] } } }
+{ "mcpServers": { "deskcalc-verify": { "command": "npx", "args": ["-y", "deskcalc-verify"] } } }
 ```
 
 Codex - CLI, IDE extension and the Codex mode of the ChatGPT desktop app share
@@ -124,7 +124,7 @@ Codex - CLI, IDE extension and the Codex mode of the ChatGPT desktop app share
 ```toml
 [mcp_servers.deskcalc-verify]
 command = "npx"
-args = ["-y", "@deskcalc/verify"]
+args = ["-y", "deskcalc-verify"]
 ```
 
 Environment (optional): `DESKCALC_PATH` (path to deskcalc.exe), `DESKCALC_VERIFY_DIR`
