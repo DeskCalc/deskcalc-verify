@@ -22783,7 +22783,7 @@ var PROMPTS = [
 
 // package.json
 var package_default = {
-  name: "deskcalc-verify",
+  name: "@deskcalc/verify",
   version: "1.0.0",
   description: "MCP server: let a human check and confirm numbers in DeskCalc before an AI agent uses the total.",
   mcpName: "com.deskcalc/verify",
