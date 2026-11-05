@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { encodeCp1252, decodeCp1252 } from '../src/cp1252.js';
-import { normaliseValue, buildJob, parseResult, diffLines, decimalSum, decimalMul, roundCents, cleanLabel, checkDocument, roundedModel, type Item } from '../src/protocol.js';
+import { normaliseValue, buildJob, parseResult, diffLines, decimalSum, decimalMul, roundCents, cleanLabel, checkDocument, roundedModel, precheck, simulateTape, type Item } from '../src/protocol.js';
 
 describe('cp1252', () => {
   it('round-trips €, umlauts and quotes', () => {
@@ -316,6 +316,48 @@ describe('figures that only carry a wrong line total forward', () => {
     const tax = c.find(x => x.check.startsWith('tax'))!;
     expect(tax.ok).toBe(false);
     expect(tax.follows).toBeFalsy();
+  });
+});
+
+describe('document check before DeskCalc opens (V12)', () => {
+  const inv = (vat = '134.84', total = '809.04'): Item[] => [
+    ...[['8', '24.9', '199.20'], ['3', '89.9', '269.70'], ['25', '2.35', '58.75'], ['12', '7.45', '98.40'], ['10', '5.95', '59.50'], ['1', '9.5', '9.50']]
+      .map(([qty, price, printed], i) => ({ kind: 'qty' as const, label: `P${i + 1}`, qty, price, value: decimalMul(qty, price), printed })),
+    { kind: 'percent', label: 'Discount', value: '', rate: '-3', printed: '20.85' },
+    { kind: 'tax', label: 'VAT', value: '', rate: '20', printed: vat },
+  ];
+  it('marks the wrong line and the figures that only follow from it', () => {
+    const p = precheck(inv(), '809.04')!;
+    expect(p.status).toBe('diff');
+    expect([...p.marks].sort((x, y) => x[0] - y[0])).toEqual([[3, 'err'], [6, 'follow'], [7, 'follow']]);
+    expect(p.total).toEqual({ value: '809.04', mark: 'follow' });
+    expect(p.docs.slice(3)).toEqual(['98.40', '59.50', '9.50', '-20.85', '134.84']);
+  });
+  it('says ok when every printed figure matches', () => {
+    const ok = inv().map(it => (it.label === 'P4' ? { ...it, printed: '89.40' } : it));
+    const p = precheck(ok.map(it => (it.kind === 'percent' ? { ...it, printed: '20.58' } : it.kind === 'tax' ? { ...it, printed: '133.09' } : it)), '798.56')!;
+    expect(p.status).toBe('ok');
+    expect(p.marks.size).toBe(0);
+  });
+  it('has nothing to say without printed figures', () => {
+    expect(precheck([{ kind: 'amount', label: 'a', value: '1' }])).toBeUndefined();
+  });
+  it('flags a total that is added up wrong on its own', () => {
+    const ok = inv().map(it => (it.label === 'P4' ? { ...it, printed: '89.40' } : it.kind === 'percent' ? { ...it, printed: '20.58' } : it.kind === 'tax' ? { ...it, printed: '133.09' } : it));
+    expect(precheck(ok, '799.56')!.total).toEqual({ value: '799.56', mark: 'err' });
+  });
+  it('writes the document figures and marks into the job', () => {
+    const p = precheck(inv(), '809.04')!;
+    const xml = decodeCp1252(buildJob('j1', 'Inv', inv(), undefined, p).bytes);
+    expect(xml).toContain('check="diff" doctotal="809.04" doctotalmark="follow"');
+    expect(xml).toMatch(/label="P4" doc="98.40" mark="err"/);
+    expect(xml).toMatch(/type="tax" rate="20" incl="0" label="VAT" doc="134.84" mark="follow"/);
+    expect(xml).not.toMatch(/label="P1" doc="199.20" mark/);
+  });
+  it('agrees with the check after Confirm when nothing was changed', () => {
+    const sim = simulateTape(inv());
+    const after = checkDocument(inv(), sim.lines, sim.total, '809.04');
+    expect(after.filter(c => !c.ok).length).toBe(4);
   });
 });
 

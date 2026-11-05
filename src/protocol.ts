@@ -147,20 +147,26 @@ export function cleanLabel(label: string | undefined): string {
   return (label ?? '').replace(/[\r\n\t]+/g, ' ').trim().slice(0, MAX_LABEL);
 }
 
-export function buildJob(id: string, title: string, items: Item[], replace?: string): Encoded {
+export function buildJob(id: string, title: string, items: Item[], replace?: string, pre?: Precheck): Encoded {
   let xml = '<?xml version="1.0" encoding="windows-1252"?>\r\n';
   const rep = replace ? ` replace="${xmlEscape(replace)}"` : '';
-  xml += `<VERIFY version="1" id="${xmlEscape(id)}"${rep} decimal=".">\r\n`;
+  // V12 (DeskCalc 11.3.1): the document's own figures and where they differ. DeskCalc shows
+  // them as a pinned "document" tape next to the check tape; older versions ignore them.
+  const chk = pre ? ` check="${pre.status}"` +
+    (pre.total ? ` doctotal="${pre.total.value}"${pre.total.mark ? ` doctotalmark="${pre.total.mark}"` : ''}` : '') : '';
+  xml += `<VERIFY version="1" id="${xmlEscape(id)}"${rep}${chk} decimal=".">\r\n`;
   xml += `<TITLE>${xmlEscape(cleanLabel(title) || 'Verify')}</TITLE>\r\n`;
-  for (const it of items) {
-    const label = `label="${xmlEscape(it.label)}"`;
+  items.forEach((it, i) => {
+    const doc = pre?.docs[i] !== undefined ? ` doc="${pre.docs[i]}"` : '';
+    const mark = pre?.marks.get(i) ? ` mark="${pre.marks.get(i)}"` : '';
+    const label = `label="${xmlEscape(it.label)}"${doc}${mark}`;
     if (it.kind === 'group') xml += `<LINE type="group" ${label}/>\r\n`;
     else if (it.kind === 'subtotal') xml += `<LINE type="subtotal" ${label}/>\r\n`;
     else if (it.kind === 'tax') xml += `<LINE type="tax" rate="${it.rate}" incl="${it.included ? 1 : 0}" ${label}/>\r\n`;
     else if (it.kind === 'percent') xml += `<LINE type="percent" rate="${it.rate}" ${label}/>\r\n`;
     else if (it.kind === 'qty') xml += `<LINE value="${it.price}" qty="${it.qty}" ${label}/>\r\n`;
     else xml += `<LINE value="${it.value}" ${label}/>\r\n`;
-  }
+  });
   xml += '</VERIFY>\r\n';
   return encodeCp1252(xml);
 }
@@ -285,7 +291,8 @@ export interface Check {
   ok: boolean;
   difference?: string;
   rounding?: string;        // set when the document matches only after rounding tax/discounts to the cent
-  follows?: boolean;        // subtotal: same difference as the checkpoint before - not a new error
+  follows?: boolean;        // only follows from a difference above - not an error of its own
+  item?: number;            // index of the line in the items as sent (internal; not returned to the agent)
 }
 
 /** a * b / c on exact decimals (for included tax: base * r / (100 + r)). */
@@ -350,6 +357,76 @@ const PER_LINE_NOTE = 'matches when the tax is rounded to the cent per position 
  */
 export interface ColumnTotals { net?: string; tax?: string }
 
+/**
+ * The tape as DeskCalc will compute it, before it is sent: exact amounts, blocks, running
+ * totals. Lets the server run the document check up front (V12) - the same checkDocument
+ * that runs after Confirm, on the figures as sent.
+ */
+export function simulateTape(items: Item[]): { lines: ResultLine[]; total: string; lineOf: (number | undefined)[] } {
+  const multi = items.some(it => it.kind === 'group');
+  const lines: ResultLine[] = [];
+  const lineOf: (number | undefined)[] = [];
+  const runs: string[] = [];
+  let run = '0', block = 0;
+  items.forEach(it => {
+    if (it.kind === 'group') { if (block > 0) runs.push(run); block++; run = '0'; lineOf.push(undefined); return; }
+    const b = multi ? { block: Math.max(block, 1) } : {};
+    lineOf.push(lines.length);
+    if (it.kind === 'subtotal') { lines.push({ value: run, label: it.label, type: 'subtotal', ...b }); return; }
+    if (it.kind === 'tax' || it.kind === 'percent') {
+      const rate = it.rate ?? '0';
+      const raw = it.kind === 'tax' && it.included ? '-' + mulDiv(run, rate, decimalSum(['100', rate])) : mulDiv(run, rate, '100');
+      const value = raw.replace(/^--/, '');
+      lines.push({ value, label: it.label, type: it.kind, rate, base: run, ...(it.kind === 'tax' ? { included: !!it.included } : {}), ...b });
+      run = decimalSum([run, value]);
+      return;
+    }
+    const value = it.kind === 'qty' ? decimalMul(it.qty!, it.price!) : it.value;
+    lines.push({ value, label: it.label, ...(it.kind === 'qty' ? { qty: it.qty, price: it.price } : {}), ...b });
+    run = decimalSum([run, value]);
+  });
+  runs.push(run);
+  return { lines, total: decimalSum(runs), lineOf };
+}
+
+export type Mark = 'err' | 'follow';
+export interface Precheck {
+  status: 'ok' | 'diff';
+  docs: (string | undefined)[];          // per item: the figure as the document shows it (signed like the tape)
+  marks: Map<number, Mark>;              // per item: differs on its own / only follows from a difference above
+  total?: { value: string; mark?: Mark };
+}
+
+/** Document check on the figures as sent, before DeskCalc opens (V12). undefined: nothing printed to check. */
+export function precheck(items: Item[], expectedTotal?: string, columns: ColumnTotals = {}): Precheck | undefined {
+  const sim = simulateTape(items);
+  const checks = checkDocument(items, sim.lines, sim.total, expectedTotal, columns);
+  if (!checks.length) return undefined;
+  const marks = new Map<number, Mark>();
+  let totalMark: Mark | undefined;
+  for (const c of checks) {
+    if (c.ok) continue;
+    const m: Mark = c.follows ? 'follow' : 'err';
+    if (c.check === 'total') totalMark = m;
+    else if (c.item !== undefined) marks.set(c.item, m);
+  }
+  const neg = (v: string) => (v.startsWith('-') ? v : '-' + v);
+  const pos = (v: string) => v.replace(/^-/, '');
+  const docs = items.map((it, i) => {
+    const line = sim.lineOf[i] !== undefined ? sim.lines[sim.lineOf[i]!] : undefined;
+    switch (it.kind) {
+      case 'group': return undefined;
+      case 'amount': return it.value;
+      case 'qty': return it.printed ?? roundCents(it.value);
+      case 'subtotal': return it.printed;
+      case 'tax': return it.printed === undefined ? roundCents(line!.value) : it.included ? neg(pos(it.printed)) : pos(it.printed);
+      case 'percent': return it.printed === undefined ? roundCents(line!.value) : Number(it.rate) < 0 ? neg(pos(it.printed)) : pos(it.printed);
+    }
+  });
+  return { status: checks.every(c => c.ok) ? 'ok' : 'diff', docs, marks,
+           ...(expectedTotal !== undefined ? { total: { value: expectedTotal, ...(totalMark ? { mark: totalMark } : {}) } } : {}) };
+}
+
 /** A cross-footed table row as confirmed: one block per row (net, tax, checkpoint "gross"). */
 export interface RowPart { label: string; printed: string; net: string; tax: string; computed: string }
 
@@ -385,7 +462,7 @@ export function checkDocument(sent: Item[], got: ResultLine[], total: string | u
 
   sent.forEach((s, i) => {
     if (s.kind === 'qty' && s.printed !== undefined)
-      checks.push(mk(`line ${i + 1} "${s.label}": ${s.qty} x ${s.price}`, s.printed, s.value));
+      checks.push({ ...mk(`line ${i + 1} "${s.label}": ${s.qty} x ${s.price}`, s.printed, s.value), item: i });
   });
   // Cross-footing (Querfußen): each row is a block on the tape - net, tax and the printed
   // gross as a checkpoint, so DeskCalc itself shows net + tax. Net and tax are the values
@@ -393,7 +470,8 @@ export function checkDocument(sent: Item[], got: ResultLine[], total: string | u
   const rows = rowParts(sent, got);
   let rowDiff: string | undefined;          // a wrong row also makes the gross total differ
   if (rows.length) {
-    const rc = rows.map(r => mk(`row "${r.label}": net ${roundCents(r.net)} + tax ${roundCents(r.tax)}`, r.printed, r.computed));
+    const grossIdx = sent.map((s, i) => (s.row === 'gross' ? i : -1)).filter(i => i >= 0);
+    const rc = rows.map((r, b) => ({ ...mk(`row "${r.label}": net ${roundCents(r.net)} + tax ${roundCents(r.tax)}`, r.printed, r.computed), item: grossIdx[b] }));
     checks.push(...rc);
     const wrong = rc.filter(c => !c.ok);
     if (wrong.length) rowDiff = roundCents(decimalSum(wrong.map(c => c.difference!)));
@@ -418,12 +496,15 @@ export function checkDocument(sent: Item[], got: ResultLine[], total: string | u
   };
   const idx = (type: 'tax' | 'percent') => got.map((g, i) => ({ g, i })).filter(x => x.g.type === type);
   const sentTax = sent.filter(s => s.kind === 'tax');
+  const indexOf = (kind: ItemKind) => sent.map((s, i) => (s.kind === kind ? i : -1)).filter(i => i >= 0);
+  const taxIdx = indexOf('tax'), percIdx = indexOf('percent'), subIdx = indexOf('subtotal');
   idx('tax').forEach(({ g, i }, k) => {
     const s = sentTax[k];
     if (s?.printed !== undefined)   // printed tax is positive; an included tax comes back negative (subtracted)
       checks.push(carried(mk(`tax ${g.rate} %${g.included ? ' (included)' : ''} on ${roundCents(g.base ?? '0')}`,
         abs(s.printed), abs(g.value), abs(model.amounts.get(i) ?? g.value), abs(lineModel.amounts.get(i) ?? g.value)),
         m => { const v = m.amounts.get(i); return v === undefined ? undefined : abs(v); }));
+    if (s?.printed !== undefined) checks[checks.length - 1].item = taxIdx[k];
   });
   const sentPerc = sent.filter(s => s.kind === 'percent');
   idx('percent').forEach(({ g, i }, k) => {
@@ -432,6 +513,7 @@ export function checkDocument(sent: Item[], got: ResultLine[], total: string | u
       checks.push(carried(mk(`${Number(g.rate) < 0 ? 'discount' : 'surcharge'} ${abs(g.rate ?? '')} % on ${roundCents(g.base ?? '0')}`,
         abs(s.printed), abs(g.value), abs(model.amounts.get(i) ?? g.value)),
         m => { const v = m.amounts.get(i); return v === undefined ? undefined : abs(v); }));
+    if (s?.printed !== undefined) checks[checks.length - 1].item = percIdx[k];
   });
   // Checkpoints (printed subtotal / carry-over): compared with the running total of the
   // confirmed tape at that point. The first wrong one locates the error; later ones with
@@ -444,6 +526,7 @@ export function checkDocument(sent: Item[], got: ResultLine[], total: string | u
     const c = carried(mk(`subtotal "${g.label}"`, s.printed, g.value, model.amounts.get(i), lineModel.amounts.get(i)), m => m.amounts.get(i));
     if (!c.ok && lastDiff !== undefined && c.difference === lastDiff) c.follows = true;
     if (!c.ok) lastDiff = c.difference; else lastDiff = undefined;
+    c.item = subIdx[k];
     checks.push(c);
   });
   if (expectedTotal !== undefined && total !== undefined) {

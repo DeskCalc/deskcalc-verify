@@ -1,0 +1,1079 @@
+[
+ {
+  "folder": "V1 Rechnung",
+  "name": "invoice",
+  "scroll": 9,
+  "args": {
+   "title": "RE-2026-2041",
+   "items": [
+    {
+     "label": "1 Kopierpapier A4 80 g, K",
+     "qty": 8,
+     "price": 24.9,
+     "value": 199.2
+    },
+    {
+     "label": "2 Toner schwarz TX-200",
+     "qty": 3,
+     "price": 89.9,
+     "value": 269.7
+    },
+    {
+     "label": "3 Ordner breit, blau",
+     "qty": 25,
+     "price": 2.35,
+     "value": 58.75
+    },
+    {
+     "label": "4 Haftnotizen 76x76, 12er",
+     "qty": 12,
+     "price": 7.45,
+     "value": 98.4
+    },
+    {
+     "label": "5 Whiteboard-Marker, 4er-",
+     "qty": 10,
+     "price": 5.95,
+     "value": 59.5
+    },
+    {
+     "label": "6 Versand",
+     "qty": 1,
+     "price": 9.5,
+     "value": 9.5
+    },
+    {
+     "type": "percent",
+     "rate": -3,
+     "label": "abzüglich 3 % Rabatt",
+     "value": -20.85
+    },
+    {
+     "type": "tax",
+     "rate": 20,
+     "label": "zuzüglich 20 % USt",
+     "value": 134.84
+    }
+   ],
+   "expected_total": 809.04
+  }
+ },
+ {
+  "folder": "V4 Spesen",
+  "name": "receipts-vat",
+  "scroll": 60,
+  "args": {
+   "title": "Spesenbelege Oktober",
+   "items": [
+    {
+     "type": "group",
+     "label": "01.10 Café Kranzler-Eck"
+    },
+    {
+     "label": "Bewirtung",
+     "value": 24.41
+    },
+    {
+     "type": "tax",
+     "rate": 10,
+     "included": true,
+     "value": 2.22
+    },
+    {
+     "type": "group",
+     "label": "02.10 Taxi Funkzentrale S"
+    },
+    {
+     "label": "Taxi",
+     "value": 45.51
+    },
+    {
+     "type": "tax",
+     "rate": 10,
+     "included": true,
+     "value": 4.14
+    },
+    {
+     "type": "group",
+     "label": "03.10 Café Kranzler-Eck"
+    },
+    {
+     "label": "Bewirtung",
+     "value": 19.94
+    },
+    {
+     "type": "tax",
+     "rate": 10,
+     "included": true,
+     "value": 1.81
+    },
+    {
+     "type": "group",
+     "label": "08.10 Gasthaus Zum Golden"
+    },
+    {
+     "label": "Bewirtung",
+     "value": 65.14
+    },
+    {
+     "type": "tax",
+     "rate": 10,
+     "included": true,
+     "value": 5.92
+    },
+    {
+     "type": "group",
+     "label": "09.10 Tankstelle Am Gürte"
+    },
+    {
+     "label": "Treibstoff",
+     "value": 77.54
+    },
+    {
+     "type": "tax",
+     "rate": 20,
+     "included": true,
+     "value": 12.92
+    },
+    {
+     "type": "group",
+     "label": "10.10 Café Kranzler-Eck"
+    },
+    {
+     "label": "Bewirtung",
+     "value": 10.53
+    },
+    {
+     "type": "tax",
+     "rate": 10,
+     "included": true,
+     "value": 0.96
+    },
+    {
+     "type": "group",
+     "label": "11.10 Gasthaus Zum Golden"
+    },
+    {
+     "label": "Bewirtung",
+     "value": 27.75
+    },
+    {
+     "type": "tax",
+     "rate": 10,
+     "included": true,
+     "value": 2.52
+    },
+    {
+     "type": "group",
+     "label": "11.10 Regionalbahn Ticket"
+    },
+    {
+     "label": "Fahrkarte",
+     "value": 64.65
+    },
+    {
+     "type": "tax",
+     "rate": 10,
+     "included": true,
+     "value": 5.88
+    },
+    {
+     "type": "group",
+     "label": "13.10 Papierwaren Huber"
+    },
+    {
+     "label": "Bürobedarf",
+     "value": 10.42
+    },
+    {
+     "type": "tax",
+     "rate": 20,
+     "included": true,
+     "value": 1.74
+    },
+    {
+     "type": "group",
+     "label": "14.10 Regionalbahn Ticket"
+    },
+    {
+     "label": "Fahrkarte",
+     "value": 18.53
+    },
+    {
+     "type": "tax",
+     "rate": 10,
+     "included": true,
+     "value": 1.68
+    },
+    {
+     "type": "group",
+     "label": "14.10 Regionalbahn Ticket"
+    },
+    {
+     "label": "Fahrkarte",
+     "value": 41.92
+    },
+    {
+     "type": "tax",
+     "rate": 10,
+     "included": true,
+     "value": 3.81
+    },
+    {
+     "type": "group",
+     "label": "15.10 Regionalbahn Ticket"
+    },
+    {
+     "label": "Fahrkarte",
+     "value": 57.04
+    },
+    {
+     "type": "tax",
+     "rate": 10,
+     "included": true,
+     "value": 5.19
+    },
+    {
+     "type": "group",
+     "label": "15.10 Parkgarage Stadtmit"
+    },
+    {
+     "label": "Parken",
+     "value": 15.78
+    },
+    {
+     "type": "tax",
+     "rate": 20,
+     "included": true,
+     "value": 2.63
+    },
+    {
+     "type": "group",
+     "label": "15.10 Hotel Alpenblick"
+    },
+    {
+     "label": "Nächtigung",
+     "value": 148.56
+    },
+    {
+     "type": "tax",
+     "rate": 10,
+     "included": true,
+     "value": 13.51
+    },
+    {
+     "type": "group",
+     "label": "16.10 Café Kranzler-Eck"
+    },
+    {
+     "label": "Bewirtung",
+     "value": 23.58
+    },
+    {
+     "type": "tax",
+     "rate": 10,
+     "included": true,
+     "value": 2.14
+    },
+    {
+     "type": "group",
+     "label": "16.10 Regionalbahn Ticket"
+    },
+    {
+     "label": "Fahrkarte",
+     "value": 64.23
+    },
+    {
+     "type": "tax",
+     "rate": 10,
+     "included": true,
+     "value": 5.84
+    },
+    {
+     "type": "group",
+     "label": "17.10 Regionalbahn Ticket"
+    },
+    {
+     "label": "Fahrkarte",
+     "value": 51.02
+    },
+    {
+     "type": "tax",
+     "rate": 10,
+     "included": true,
+     "value": 5.04
+    },
+    {
+     "type": "group",
+     "label": "18.10 Papierwaren Huber"
+    },
+    {
+     "label": "Bürobedarf",
+     "value": 49.9
+    },
+    {
+     "type": "tax",
+     "rate": 20,
+     "included": true,
+     "value": 8.32
+    },
+    {
+     "type": "group",
+     "label": "19.10 Parkgarage Stadtmit"
+    },
+    {
+     "label": "Parken",
+     "value": 21.2
+    },
+    {
+     "type": "tax",
+     "rate": 20,
+     "included": true,
+     "value": 3.53
+    },
+    {
+     "type": "group",
+     "label": "20.10 Tankstelle Am Gürte"
+    },
+    {
+     "label": "Treibstoff",
+     "value": 45.2
+    },
+    {
+     "type": "tax",
+     "rate": 20,
+     "included": true,
+     "value": 7.53
+    },
+    {
+     "type": "group",
+     "label": "21.10 Papierwaren Huber"
+    },
+    {
+     "label": "Bürobedarf",
+     "value": 45.07
+    },
+    {
+     "type": "tax",
+     "rate": 20,
+     "included": true,
+     "value": 7.51
+    },
+    {
+     "type": "group",
+     "label": "21.10 Taxi Funkzentrale S"
+    },
+    {
+     "label": "Taxi",
+     "value": 47.9
+    },
+    {
+     "type": "tax",
+     "rate": 10,
+     "included": true,
+     "value": 4.35
+    },
+    {
+     "type": "group",
+     "label": "21.10 Tankstelle Am Gürte"
+    },
+    {
+     "label": "Treibstoff",
+     "value": 54.99
+    },
+    {
+     "type": "tax",
+     "rate": 20,
+     "included": true,
+     "value": 9.17
+    },
+    {
+     "type": "group",
+     "label": "22.10 Parkgarage Stadtmit"
+    },
+    {
+     "label": "Parken",
+     "value": 20.46
+    },
+    {
+     "type": "tax",
+     "rate": 20,
+     "included": true,
+     "value": 3.41
+    },
+    {
+     "type": "group",
+     "label": "23.10 Parkgarage Stadtmit"
+    },
+    {
+     "label": "Parken",
+     "value": 24.55
+    },
+    {
+     "type": "tax",
+     "rate": 20,
+     "included": true,
+     "value": 4.09
+    },
+    {
+     "type": "group",
+     "label": "26.10 Hotel Alpenblick"
+    },
+    {
+     "label": "Nächtigung",
+     "value": 147.43
+    },
+    {
+     "type": "tax",
+     "rate": 10,
+     "included": true,
+     "value": 13.4
+    },
+    {
+     "type": "group",
+     "label": "28.10 Parkgarage Stadtmit"
+    },
+    {
+     "label": "Parken",
+     "value": 5.01
+    },
+    {
+     "type": "tax",
+     "rate": 20,
+     "included": true,
+     "value": 0.84
+    },
+    {
+     "type": "group",
+     "label": "29.10 Café Kranzler-Eck"
+    },
+    {
+     "label": "Bewirtung",
+     "value": 15.14
+    },
+    {
+     "type": "tax",
+     "rate": 10,
+     "included": true,
+     "value": 1.38
+    },
+    {
+     "type": "group",
+     "label": "29.10 Taxi Funkzentrale S"
+    },
+    {
+     "label": "Taxi",
+     "value": 31.74
+    },
+    {
+     "type": "tax",
+     "rate": 10,
+     "included": true,
+     "value": 2.89
+    },
+    {
+     "type": "group",
+     "label": "30.10 Regionalbahn Ticket"
+    },
+    {
+     "label": "Fahrkarte",
+     "value": 41.61
+    },
+    {
+     "type": "tax",
+     "rate": 10,
+     "included": true,
+     "value": 3.78
+    }
+   ]
+  }
+ },
+ {
+  "folder": "V4 Spesen",
+  "name": "claim",
+  "scroll": -1,
+  "args": {
+   "title": "Spesenabrechnung Okt",
+   "items": [
+    {
+     "label": "01.10 Café Kranzler-Eck",
+     "value": 24.41
+    },
+    {
+     "label": "02.10 Taxi Funkzentrale S",
+     "value": 45.51
+    },
+    {
+     "label": "03.10 Café Kranzler-Eck",
+     "value": 19.94
+    },
+    {
+     "label": "08.10 Gasthaus Zum Golden",
+     "value": 65.14
+    },
+    {
+     "label": "09.10 Tankstelle Am Gürte",
+     "value": 77.54
+    },
+    {
+     "label": "10.10 Café Kranzler-Eck",
+     "value": 10.53
+    },
+    {
+     "label": "11.10 Gasthaus Zum Golden",
+     "value": 27.75
+    },
+    {
+     "label": "11.10 Regionalbahn Ticket",
+     "value": 64.65
+    },
+    {
+     "label": "13.10 Papierwaren Huber",
+     "value": 10.42
+    },
+    {
+     "label": "14.10 Regionalbahn Ticket",
+     "value": 18.53
+    },
+    {
+     "label": "14.10 Regionalbahn Ticket",
+     "value": 41.92
+    },
+    {
+     "label": "15.10 Regionalbahn Ticket",
+     "value": 50.74
+    },
+    {
+     "label": "15.10 Parkgarage Stadtmit",
+     "value": 15.78
+    },
+    {
+     "label": "15.10 Hotel Alpenblick",
+     "value": 148.56
+    },
+    {
+     "label": "16.10 Café Kranzler-Eck",
+     "value": 23.58
+    },
+    {
+     "label": "16.10 Regionalbahn Ticket",
+     "value": 64.23
+    },
+    {
+     "label": "17.10 Regionalbahn Ticket",
+     "value": 51.02
+    },
+    {
+     "label": "18.10 Papierwaren Huber",
+     "value": 49.9
+    },
+    {
+     "label": "19.10 Parkgarage Stadtmit",
+     "value": 21.2
+    },
+    {
+     "label": "20.10 Tankstelle Am Gürte",
+     "value": 45.2
+    },
+    {
+     "label": "21.10 Papierwaren Huber",
+     "value": 45.07
+    },
+    {
+     "label": "21.10 Taxi Funkzentrale S",
+     "value": 47.9
+    },
+    {
+     "label": "21.10 Tankstelle Am Gürte",
+     "value": 54.99
+    },
+    {
+     "label": "22.10 Parkgarage Stadtmit",
+     "value": 20.46
+    },
+    {
+     "label": "23.10 Parkgarage Stadtmit",
+     "value": 24.55
+    },
+    {
+     "label": "26.10 Hotel Alpenblick",
+     "value": 147.43
+    },
+    {
+     "label": "28.10 Parkgarage Stadtmit",
+     "value": 5.01
+    },
+    {
+     "label": "29.10 Café Kranzler-Eck",
+     "value": 15.14
+    },
+    {
+     "label": "29.10 Taxi Funkzentrale S",
+     "value": 31.74
+    },
+    {
+     "label": "30.10 Regionalbahn Ticket",
+     "value": 41.61
+    }
+   ],
+   "expected_total": 1311.45
+  }
+ },
+ {
+  "folder": "V5 Kontoauszug",
+  "name": "statement",
+  "scroll": 14,
+  "args": {
+   "title": "Kontoauszug 10/2026",
+   "items": [
+    {
+     "label": "Anfangssaldo 01.10.2026",
+     "value": 42480.35
+    },
+    {
+     "label": "01.10. Gutschrift Kunde A",
+     "value": 4376.24
+    },
+    {
+     "label": "01.10. Kartenzahlung Tank",
+     "value": -188.58
+    },
+    {
+     "label": "02.10. Überweisung Miete ",
+     "value": -4639.43
+    },
+    {
+     "label": "02.10. Kontoführung",
+     "value": -4227.9
+    },
+    {
+     "label": "03.10. Gehalt A. Beispiel",
+     "value": -1902.1
+    },
+    {
+     "label": "03.10. Gutschrift Kunde A",
+     "value": 3646.46
+    },
+    {
+     "label": "04.10. Gutschrift Kunde G",
+     "value": 2695.51
+    },
+    {
+     "label": "04.10. Gutschrift Kunde G",
+     "value": 2939.67
+    },
+    {
+     "label": "05.10. Überweisung Finanz",
+     "value": -4373.94
+    },
+    {
+     "label": "05.10. Kartenzahlung Tank",
+     "value": -2414.43
+    },
+    {
+     "label": "06.10. Lastschrift Stroml",
+     "value": -3629.09
+    },
+    {
+     "label": "06.10. Gutschrift Kunde D",
+     "value": 1372.02
+    },
+    {
+     "type": "subtotal",
+     "label": "Übertrag auf Seite 2",
+     "value": 36134.78
+    },
+    {
+     "label": "11.10. Gutschrift Kunde G",
+     "value": 2247.29
+    },
+    {
+     "label": "11.10. Gutschrift Kunde D",
+     "value": 352.09
+    },
+    {
+     "label": "12.10. Überweisung Finanz",
+     "value": -4750.7
+    },
+    {
+     "label": "12.10. Gutschrift Kunde G",
+     "value": 521.79
+    },
+    {
+     "label": "13.10. Gutschrift Kunde A",
+     "value": 4506.24
+    },
+    {
+     "label": "13.10. Lastschrift Telefo",
+     "value": -2371.12
+    },
+    {
+     "label": "14.10. Gutschrift Kunde B",
+     "value": 16.12
+    },
+    {
+     "label": "14.10. Gutschrift Kunde G",
+     "value": 2880.7
+    },
+    {
+     "label": "15.10. Lastschrift Stroml",
+     "value": -4176.64
+    },
+    {
+     "label": "15.10. Gutschrift Kunde A",
+     "value": 648.43
+    },
+    {
+     "label": "16.10. Kontoführung",
+     "value": -3956.88
+    },
+    {
+     "label": "16.10. Gehalt A. Beispiel",
+     "value": -3519.74
+    },
+    {
+     "type": "subtotal",
+     "label": "Übertrag auf Seite 3",
+     "value": 28522.36
+    },
+    {
+     "label": "21.10. Überweisung Finanz",
+     "value": -826.39
+    },
+    {
+     "label": "21.10. Gutschrift Kunde B",
+     "value": 3499.32
+    },
+    {
+     "label": "22.10. Kontoführung",
+     "value": -4049.54
+    },
+    {
+     "label": "22.10. Gutschrift Kunde G",
+     "value": 3792.35
+    },
+    {
+     "label": "23.10. Überweisung Miete ",
+     "value": -1183.78
+    },
+    {
+     "label": "23.10. Gutschrift Kunde G",
+     "value": 702.95
+    },
+    {
+     "label": "24.10. Kontoführung",
+     "value": -2661.19
+    },
+    {
+     "label": "24.10. Kartenzahlung Tank",
+     "value": -2205.36
+    },
+    {
+     "label": "25.10. Überweisung Finanz",
+     "value": -724.6
+    },
+    {
+     "label": "25.10. Kontoführung",
+     "value": -2676.82
+    },
+    {
+     "label": "26.10. Lastschrift Telefo",
+     "value": -4251.22
+    },
+    {
+     "label": "26.10. Überweisung Miete ",
+     "value": -4245.52
+    }
+   ],
+   "expected_total": 13692.56
+  }
+ },
+ {
+  "folder": "V6 Querfussen",
+  "name": "day-book",
+  "scroll": 25,
+  "args": {
+   "title": "Rechnungsausgangsbuc",
+   "items": [
+    {
+     "label": "RE-2026-1101 Beispiel KG",
+     "value": 4827.25,
+     "net": 4022.71,
+     "tax": 804.54
+    },
+    {
+     "label": "RE-2026-1102 Beispiel KG",
+     "value": 10327.85,
+     "net": 9388.95,
+     "tax": 938.9
+    },
+    {
+     "label": "RE-2026-1103 Kappa Handel",
+     "value": 8227.98,
+     "net": 6856.65,
+     "tax": 1371.33
+    },
+    {
+     "label": "RE-2026-1104 Delta e.U.",
+     "value": 417.89,
+     "net": 348.24,
+     "tax": 69.65
+    },
+    {
+     "label": "RE-2026-1105 Delta e.U.",
+     "value": 8687.53,
+     "net": 7239.61,
+     "tax": 1447.92
+    },
+    {
+     "label": "RE-2026-1106 Delta e.U.",
+     "value": 1623.22,
+     "net": 1352.68,
+     "tax": 270.54
+    },
+    {
+     "label": "RE-2026-1107 Alpha OG",
+     "value": 7420.02,
+     "net": 6566.55,
+     "tax": 853.65
+    },
+    {
+     "label": "RE-2026-1108 Alpha OG",
+     "value": 7535.78,
+     "net": 6279.82,
+     "tax": 1255.96
+    },
+    {
+     "label": "RE-2026-1109 Delta e.U.",
+     "value": 7277.84,
+     "net": 6616.22,
+     "tax": 661.62
+    },
+    {
+     "label": "RE-2026-1110 Sigma Consul",
+     "value": 2855.06,
+     "net": 2526.6,
+     "tax": 328.46
+    },
+    {
+     "label": "RE-2026-1111 Beispiel KG",
+     "value": 6983.3,
+     "net": 5819.42,
+     "tax": 1163.88
+    },
+    {
+     "label": "GS-2026-1112 Alpha OG",
+     "value": -2060.02,
+     "net": -1716.68,
+     "tax": -343.34
+    },
+    {
+     "label": "RE-2026-1113 Kappa Handel",
+     "value": 8252.63,
+     "net": 6877.19,
+     "tax": 1375.44
+    },
+    {
+     "label": "RE-2026-1114 Kappa Handel",
+     "value": 5781.22,
+     "net": 4817.68,
+     "tax": 963.54
+    },
+    {
+     "label": "RE-2026-1115 Sigma Consul",
+     "value": 6184.12,
+     "net": 5153.43,
+     "tax": 1030.69
+    },
+    {
+     "label": "RE-2026-1116 Omega Bau Gm",
+     "value": 1720.94,
+     "net": 1434.12,
+     "tax": 286.82
+    }
+   ],
+   "expected_total": 86062.61,
+   "expected_net_total": 73683.19,
+   "expected_tax_total": 12479.6
+  }
+ },
+ {
+  "folder": "V7 Abgleich",
+  "name": "order",
+  "scroll": 0.0,
+  "args": {
+   "title": "B-2026-0457",
+   "items": [
+    {
+     "label": "Kopierpapier A4 80 g, Kar",
+     "qty": 6,
+     "price": 24.9,
+     "value": 149.4
+    },
+    {
+     "label": "Toner schwarz TX-200",
+     "qty": 4,
+     "price": 89.9,
+     "value": 359.6
+    },
+    {
+     "label": "Ordner breit, blau",
+     "qty": 40,
+     "price": 2.35,
+     "value": 94.0
+    },
+    {
+     "label": "Kugelschreiber Gel, 10er",
+     "qty": 12,
+     "price": 6.8,
+     "value": 81.6
+    },
+    {
+     "label": "Haftnotizen 76x76, 12er",
+     "qty": 10,
+     "price": 7.45,
+     "value": 74.5
+    },
+    {
+     "label": "Archivbox A4",
+     "qty": 20,
+     "price": 3.2,
+     "value": 64.0
+    },
+    {
+     "label": "Etiketten 70x36, 100 Bl.",
+     "qty": 3,
+     "price": 18.6,
+     "value": 55.8
+    },
+    {
+     "label": "Whiteboard-Marker 4er",
+     "qty": 8,
+     "price": 5.95,
+     "value": 47.6
+    },
+    {
+     "type": "tax",
+     "rate": 20,
+     "value": 185.3
+    }
+   ],
+   "expected_total": 1111.8
+  }
+ },
+ {
+  "folder": "V7 Abgleich",
+  "name": "invoice",
+  "scroll": 0.0,
+  "args": {
+   "title": "RE-2026-1189",
+   "items": [
+    {
+     "label": "Kopierpapier A4 80 g, Kar",
+     "qty": 6,
+     "price": 24.9,
+     "value": 149.4
+    },
+    {
+     "label": "Toner schwarz TX-200",
+     "qty": 4,
+     "price": 98.9,
+     "value": 395.6
+    },
+    {
+     "label": "Ordner breit, blau",
+     "qty": 40,
+     "price": 2.35,
+     "value": 94.0
+    },
+    {
+     "label": "Kugelschreiber Gel, 10er",
+     "qty": 12,
+     "price": 6.8,
+     "value": 81.6
+    },
+    {
+     "label": "Haftnotizen 76x76, 12er",
+     "qty": 10,
+     "price": 7.45,
+     "value": 74.5
+    },
+    {
+     "label": "Etiketten 70x36, 100 Bl.",
+     "qty": 3,
+     "price": 18.6,
+     "value": 55.8
+    },
+    {
+     "label": "Whiteboard-Marker 4er",
+     "qty": 8,
+     "price": 5.95,
+     "value": 47.6
+    },
+    {
+     "label": "Versandkostenpauschale",
+     "qty": 1,
+     "price": 14.9,
+     "value": 14.9
+    },
+    {
+     "type": "tax",
+     "rate": 20,
+     "value": 182.68
+    }
+   ],
+   "expected_total": 1096.08
+  }
+ },
+ {
+  "folder": "V8 Fremdwaehrung",
+  "name": "travel",
+  "scroll": 0.0,
+  "args": {
+   "title": "Reisekostenabrechnun",
+   "items": [
+    {
+     "label": "Hotel Midtown, 2 Nächte",
+     "foreign": 412.0,
+     "currency": "USD",
+     "fx_rate": 0.9215,
+     "value": 379.66
+    },
+    {
+     "label": "Taxi Flughafen - Hotel",
+     "foreign": 68.5,
+     "currency": "USD",
+     "fx_rate": 0.9215,
+     "value": 63.12
+    },
+    {
+     "label": "Messeeintritt",
+     "foreign": 245.0,
+     "currency": "USD",
+     "fx_rate": 0.9215,
+     "value": 227.57
+    },
+    {
+     "label": "Abendessen Kundentermin",
+     "foreign": 187.4,
+     "currency": "USD",
+     "fx_rate": 0.9215,
+     "value": 172.69
+    },
+    {
+     "label": "Bahn Zürich HB CHF 39.00 ",
+     "value": 41.64
+    },
+    {
+     "label": "Hotel am See,  CHF 214.00",
+     "value": 228.51
+    },
+    {
+     "label": "Mittagessen CHF 46.80 /0.",
+     "value": 49.97
+    }
+   ],
+   "expected_total": 1163.16
+  }
+ }
+]

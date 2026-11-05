@@ -16,7 +16,7 @@ const delay = Number(process.env.FAKE_DELAY_MS ?? 100);
 const xml = new TextDecoder('windows-1252').decode(readFileSync(job));
 const id = /\bid="([^"]*)"/.exec(xml)[1];
 const isReplace = /\breplace="/.test(xml);
-if (process.env.FAKE_LOG) appendFileSync(process.env.FAKE_LOG, `${id} replace=${/\breplace="([^"]*)"/.exec(xml)?.[1] ?? '-'}\n`);
+if (process.env.FAKE_LOG) appendFileSync(process.env.FAKE_LOG, `${id} check=${/\bcheck="([^"]*)"/.exec(xml)?.[1] ?? '-'} replace=${/\breplace="([^"]*)"/.exec(xml)?.[1] ?? '-'}\n`);
 if (mode === 'edit_qty_once') mode = isReplace ? 'confirm' : 'edit_qty';
 const unesc = s => s.replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');

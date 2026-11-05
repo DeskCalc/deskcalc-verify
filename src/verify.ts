@@ -9,7 +9,7 @@ import { reconcile, type Reconciliation } from './compare.js';
 import { buildAuditPdf, auditFileName, type Lang } from './audit.js';
 import {
   buildJob, parseResult, diffLines, decimalSum, decimalMul, sameAmount, normaliseValue, cleanLabel,
-  checkDocument, rowParts, MAX_LINES, type ColumnTotals, type Item, type Correction, type DeskCalcResult, type ResultLine, type Check,
+  checkDocument, rowParts, precheck, MAX_LINES, type ColumnTotals, type Item, type Correction, type DeskCalcResult, type ResultLine, type Check,
 } from './protocol.js';
 
 export const ACK_TIMEOUT_MS = Number(process.env.DESKCALC_ACK_TIMEOUT_MS ?? 15000);
@@ -111,7 +111,7 @@ function fromResult(r: Review, res: DeskCalcResult): Outcome {
       if (!sameAmount(sum, res.total)) warnings.push(`Sum of the confirmed lines (${sum}) differs from the DeskCalc total (${res.total}). Ask the user before relying on it.`);
     }
     const corrections = diffLines(r.sent, res.lines);
-    const checks = checkDocument(r.sent, res.lines, res.total, r.expectedTotal, r.columns);
+    const checks = checkDocument(r.sent, res.lines, res.total, r.expectedTotal, r.columns).map(({ item, ...c }) => c);
     const bad = checks.filter(c => !c.ok);
     let message = corrections.length
       ? `The user checked the tape in DeskCalc, made ${corrections.length} correction(s) and pressed Confirm. Use the total below.`
@@ -416,7 +416,7 @@ export async function verifyNumbers(input: VerifyInput, hooks: WaitHooks = {}): 
   const prev = input.replace_review_id ? reviews.get(input.replace_review_id) : auto;
   lastOutdated = undefined;
   const replace = prev?.final?.status === 'confirmed' ? prev.id : undefined;
-  const job = buildJob(id, input.title, items, replace);
+  const job = buildJob(id, input.title, items, replace, precheck(items, expectedTotal, columns));
   writeFileSync(base + '.xml.tmp', job.bytes);
   renameSync(base + '.xml.tmp', base + '.xml');
 

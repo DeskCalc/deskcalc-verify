@@ -240,6 +240,12 @@ class Maker:
     def __init__(self, lang, out):
         self.t, self.lang, self.out = T[lang], lang, out
         self.rng = random.Random(2026)          # same seed -> same amounts in both languages
+        # The verify_numbers calls an AI would make for these documents (calls/<lang>.json):
+        # a fixed reference for probe runs and screenshots. scroll: where the tapes are shown.
+        self.calls = []
+
+    def call(self, folder, name, args, scroll=0.0):
+        self.calls.append({'folder': folder, 'name': name, 'scroll': scroll, 'args': args})
 
     def amt(self, x):
         x = r2(x); s = '-' if x < 0 else ''
@@ -309,6 +315,15 @@ class Maker:
           <br><div class='small'>{t['v4foot']}</div>""", t['sample'])
         self.save(doc, f, t['v4claim'])
         total = sum(r['gross'] for r in rec)
+        lab = lambda r: f"{r['date'][:5]} {r['firm']}"[:25]
+        vat_items = []
+        for r in rec:
+            vat_items.append({'type': 'group', 'label': lab(r)})
+            vat_items.append({'label': r['art'][:25], 'value': float(r['gross'])})
+            if r['rate']: vat_items.append({'type': 'tax', 'rate': r['rate'], 'included': True, 'value': float(r.get('vat_p', r['vat']))})
+        self.call(t['v4dir'], 'receipts-vat', {'title': t['v4head'][:20], 'items': vat_items}, 4 * (bad['nr'] - 2))
+        self.call(t['v4dir'], 'claim', {'title': t['v4claim_h'][:20], 'items': [{'label': lab(r), 'value': float(listed[i])} for i, r in enumerate(rec)],
+                                         'expected_total': float(ptot)}, -1)
         self.write(f, t['sol'], t['v4sol'].format(
             receipts=t['v4receipts'], total=A(total), bn=bad['nr'], bf=bad['firm'], bg=A(bad['gross']), br=bad['rate'],
             bvp=A(bad['vat_p']), bv=A(bad['vat']), claim=t['v4claim'], ptot=A(ptot), ltot=A(sum(listed)),
@@ -346,6 +361,11 @@ class Maker:
                       f"{t['sample']} - {t['page']} {p + 1}/3")
             prev = cp[p]
         self.save(doc, f, t['v5file'])
+        items = [{'label': t['opening'][:25], 'value': float(start)}]
+        for p, b in enumerate(pages):
+            items += [{'label': f"{d} {x}"[:25], 'value': float(a)} for d, x, a in b]
+            if p < 2: items.append({'type': 'subtotal', 'label': t['cf_to'].format(p=p + 2)[:25], 'value': float(cp[p])})
+        self.call(t['v5dir'], 'statement', {'title': t['stmt'][:20], 'items': items, 'expected_total': float(cp[2])}, 14)
         self.write(f, t['sol'], t['v5sol'].format(file=t['v5file'], start=A(start), p1=A(cp[0]), p2=A(cp[1]), t2=A(ct[1]),
                                                   p3=A(cp[2]), t3=A(ct[2])))
 
@@ -376,6 +396,9 @@ class Maker:
           <tr class='tot'><td>{t['sum']}</td><td></td><td></td><td class='r'>{A(snp)}</td><td></td><td class='r'>{A(st)}</td><td class='r'>{A(sgp)}</td></tr></table>""",
                   t['sample'])
         self.save(doc, f, t['v6file'])
+        self.call(t['v6dir'], 'day-book', {'title': t['v6h'][:20], 'items': [
+            {'label': f"{r['nr']} {r['k']}"[:25], 'value': float(r.get('gp', r['gross'])), 'net': float(r['net']), 'tax': float(r['tax'])} for r in rows],
+            'expected_total': float(sgp), 'expected_net_total': float(snp), 'expected_tax_total': float(st)}, 5 * 5)
         self.write(f, t['sol'], t['v6sol'].format(file=t['v6file'], cn=rows[11]['nr'], bn=bad['nr'], bnet=A(bad['net']), btax=A(bad['tax']),
                                                   bg=A(bad['gross']), bgp=A(bad['gp']), snp=A(snp), sn=A(sn), st=A(st), sgp=A(sgp), sg=A(sg)))
 
@@ -403,6 +426,9 @@ class Maker:
         d = fitz.open(); self.page(d, h, t['sample']); self.save(d, f, f"{t['po']} {t['po_no']}.pdf")
         h, inn, iv = html(t['invh'], t['inv_no'], inv, t['inv_meta'].format(**kw))
         d = fitz.open(); self.page(d, h, t['sample']); self.save(d, f, f"{t['invh']} {t['inv_no']}.pdf")
+        for nm, title, items_, net_, vat_ in (('order', t['po_no'], order, on, ov), ('invoice', t['inv_no'], inv, inn, iv)):
+            self.call(t['v7dir'], nm, {'title': title, 'items': [{'label': n[:25], 'qty': q, 'price': float(p), 'value': float(r2(q * p))} for n, q, p in items_]
+                                       + [{'type': 'tax', 'rate': 20, 'value': float(vat_)}], 'expected_total': float(net_ + vat_)})
         self.write(f, t['sol'], t['v7sol'].format(on=A(on), og=A(on + ov), inn=A(inn), ig=A(inn + iv), toner=it[1],
                                                   p1=A(D('89.90')), a1=A(D('359.60')), p2=A(D('98.90')), a2=A(D('395.60')), d=A(D('36.00')),
                                                   box=it[5], pb=A(D('3.20')), ab=A(D('64.00')), ship=t['ship'], sp=A(D('14.90')), diff=A(inn - on)))
@@ -429,6 +455,11 @@ class Maker:
         self.save(doc, f, t['v8file'])
         lines = '\n'.join(f"  {x:<30} {cur} {A(a):>8} -> {A(e):>8}" + (f"   {t['printed']} {A(ep)} ({t['swapped']})" if ep != e else '')
                           for d, x, cur, a, k, e, ep in rows)
+        items = []
+        for d, x, cur, a, k, e, ep in rows:
+            if cur == 'USD': items.append({'label': x[:25], 'foreign': float(a), 'currency': 'USD', 'fx_rate': float(t['usd']), 'value': float(ep)})
+            else: items.append({'label': f"{x[:14]} CHF {a} /{t['chf']}"[:25], 'value': float(ep)})
+        self.call(t['v8dir'], 'travel', {'title': t['v8h'][:20], 'items': items, 'expected_total': float(pt)})
         self.write(f, t['sol'], t['v8sol'].format(file=t['v8file'], lines=lines, tt=A(tt), pt=A(pt)))
 
 
@@ -538,6 +569,10 @@ Discount, VAT and total are computed correctly from the wrong amount - they diff
   correct: subtotal {A(sub_t)}, discount {A(disc_t)}, net {A(net_t)}, VAT {A(vat_t)}, total due {A(tot_t)}
 The invoice asks for {A(diff)} GBP too much."""
         self.write(f, self.t['sol'], sol)
+        items = [{'label': f"{i + 1} {n}"[:25], 'qty': q, 'price': float(pr), 'value': float(pa)} for i, (n, q, pr, amt, pa) in enumerate(rows)]
+        items += [{'type': 'percent', 'rate': -3, 'label': L['disc'][:25], 'value': float(-disc_p)},
+                  {'type': 'tax', 'rate': 20, 'label': L['vat'][:25], 'value': float(vat_p)}]
+        self.call(L['dir'], 'invoice', {'title': L['no'], 'items': items, 'expected_total': float(tot_p)}, 9)
 
     def all(self):
         for fn in (self.v1, self.v4, self.v5, self.v6, self.v7, self.v8): fn()
@@ -549,5 +584,10 @@ if __name__ == '__main__':
     base = sys.argv[1] if len(sys.argv) > 1 else here
     names = {'de': 'de', 'en': 'en'} if len(sys.argv) == 1 else {'de': 'Musterbelege', 'en': 'Samples'}
     for lang, sub in names.items():
-        Maker(lang, os.path.join(base, sub)).all()
+        m = Maker(lang, os.path.join(base, sub))
+        m.all()
+        if len(sys.argv) == 1:
+            import json
+            os.makedirs(os.path.join(here, 'calls'), exist_ok=True)
+            io.open(os.path.join(here, 'calls', f'{lang}.json'), 'w', encoding='utf-8').write(json.dumps(m.calls, indent=1, ensure_ascii=False) + '\n')
         print('ok', os.path.join(base, sub))

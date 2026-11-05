@@ -21737,15 +21737,18 @@ function xmlUnescape(s) {
 function cleanLabel(label) {
   return (label ?? "").replace(/[\r\n\t]+/g, " ").trim().slice(0, MAX_LABEL);
 }
-function buildJob(id, title, items, replace) {
+function buildJob(id, title, items, replace, pre) {
   let xml = '<?xml version="1.0" encoding="windows-1252"?>\r\n';
   const rep = replace ? ` replace="${xmlEscape(replace)}"` : "";
-  xml += `<VERIFY version="1" id="${xmlEscape(id)}"${rep} decimal=".">\r
+  const chk = pre ? ` check="${pre.status}"` + (pre.total ? ` doctotal="${pre.total.value}"${pre.total.mark ? ` doctotalmark="${pre.total.mark}"` : ""}` : "") : "";
+  xml += `<VERIFY version="1" id="${xmlEscape(id)}"${rep}${chk} decimal=".">\r
 `;
   xml += `<TITLE>${xmlEscape(cleanLabel(title) || "Verify")}</TITLE>\r
 `;
-  for (const it of items) {
-    const label = `label="${xmlEscape(it.label)}"`;
+  items.forEach((it, i) => {
+    const doc = pre?.docs[i] !== void 0 ? ` doc="${pre.docs[i]}"` : "";
+    const mark = pre?.marks.get(i) ? ` mark="${pre.marks.get(i)}"` : "";
+    const label = `label="${xmlEscape(it.label)}"${doc}${mark}`;
     if (it.kind === "group") xml += `<LINE type="group" ${label}/>\r
 `;
     else if (it.kind === "subtotal") xml += `<LINE type="subtotal" ${label}/>\r
@@ -21758,7 +21761,7 @@ function buildJob(id, title, items, replace) {
 `;
     else xml += `<LINE value="${it.value}" ${label}/>\r
 `;
-  }
+  });
   xml += "</VERIFY>\r\n";
   return encodeCp1252(xml);
 }
@@ -21906,6 +21909,79 @@ function roundedModel(got, perLine = false) {
 }
 var ROUNDING_NOTE = "matches when tax/discounts are rounded to the cent before adding (as invoices do); DeskCalc adds the exact amounts";
 var PER_LINE_NOTE = "matches when the tax is rounded to the cent per position and then added up (as many billing programs do); DeskCalc computes the tax on the subtotal";
+function simulateTape(items) {
+  const multi = items.some((it) => it.kind === "group");
+  const lines = [];
+  const lineOf = [];
+  const runs = [];
+  let run = "0", block = 0;
+  items.forEach((it) => {
+    if (it.kind === "group") {
+      if (block > 0) runs.push(run);
+      block++;
+      run = "0";
+      lineOf.push(void 0);
+      return;
+    }
+    const b = multi ? { block: Math.max(block, 1) } : {};
+    lineOf.push(lines.length);
+    if (it.kind === "subtotal") {
+      lines.push({ value: run, label: it.label, type: "subtotal", ...b });
+      return;
+    }
+    if (it.kind === "tax" || it.kind === "percent") {
+      const rate = it.rate ?? "0";
+      const raw = it.kind === "tax" && it.included ? "-" + mulDiv(run, rate, decimalSum(["100", rate])) : mulDiv(run, rate, "100");
+      const value2 = raw.replace(/^--/, "");
+      lines.push({ value: value2, label: it.label, type: it.kind, rate, base: run, ...it.kind === "tax" ? { included: !!it.included } : {}, ...b });
+      run = decimalSum([run, value2]);
+      return;
+    }
+    const value = it.kind === "qty" ? decimalMul(it.qty, it.price) : it.value;
+    lines.push({ value, label: it.label, ...it.kind === "qty" ? { qty: it.qty, price: it.price } : {}, ...b });
+    run = decimalSum([run, value]);
+  });
+  runs.push(run);
+  return { lines, total: decimalSum(runs), lineOf };
+}
+function precheck(items, expectedTotal, columns = {}) {
+  const sim = simulateTape(items);
+  const checks = checkDocument(items, sim.lines, sim.total, expectedTotal, columns);
+  if (!checks.length) return void 0;
+  const marks = /* @__PURE__ */ new Map();
+  let totalMark;
+  for (const c of checks) {
+    if (c.ok) continue;
+    const m = c.follows ? "follow" : "err";
+    if (c.check === "total") totalMark = m;
+    else if (c.item !== void 0) marks.set(c.item, m);
+  }
+  const neg2 = (v) => v.startsWith("-") ? v : "-" + v;
+  const pos = (v) => v.replace(/^-/, "");
+  const docs = items.map((it, i) => {
+    const line = sim.lineOf[i] !== void 0 ? sim.lines[sim.lineOf[i]] : void 0;
+    switch (it.kind) {
+      case "group":
+        return void 0;
+      case "amount":
+        return it.value;
+      case "qty":
+        return it.printed ?? roundCents(it.value);
+      case "subtotal":
+        return it.printed;
+      case "tax":
+        return it.printed === void 0 ? roundCents(line.value) : it.included ? neg2(pos(it.printed)) : pos(it.printed);
+      case "percent":
+        return it.printed === void 0 ? roundCents(line.value) : Number(it.rate) < 0 ? neg2(pos(it.printed)) : pos(it.printed);
+    }
+  });
+  return {
+    status: checks.every((c) => c.ok) ? "ok" : "diff",
+    docs,
+    marks,
+    ...expectedTotal !== void 0 ? { total: { value: expectedTotal, ...totalMark ? { mark: totalMark } : {} } } : {}
+  };
+}
 function rowParts(sent, got) {
   const groups = sent.filter((s) => s.kind === "group" && s.row === "group");
   const gross = sent.filter((s) => s.row === "gross");
@@ -21941,12 +22017,13 @@ function checkDocument(sent, got, total, expectedTotal, columns = {}) {
   const abs = (x) => x.replace(/^-/, "");
   sent.forEach((s, i) => {
     if (s.kind === "qty" && s.printed !== void 0)
-      checks.push(mk(`line ${i + 1} "${s.label}": ${s.qty} x ${s.price}`, s.printed, s.value));
+      checks.push({ ...mk(`line ${i + 1} "${s.label}": ${s.qty} x ${s.price}`, s.printed, s.value), item: i });
   });
   const rows = rowParts(sent, got);
   let rowDiff;
   if (rows.length) {
-    const rc = rows.map((r) => mk(`row "${r.label}": net ${roundCents(r.net)} + tax ${roundCents(r.tax)}`, r.printed, r.computed));
+    const grossIdx = sent.map((s, i) => s.row === "gross" ? i : -1).filter((i) => i >= 0);
+    const rc = rows.map((r, b) => ({ ...mk(`row "${r.label}": net ${roundCents(r.net)} + tax ${roundCents(r.tax)}`, r.printed, r.computed), item: grossIdx[b] }));
     checks.push(...rc);
     const wrong = rc.filter((c) => !c.ok);
     if (wrong.length) rowDiff = roundCents(decimalSum(wrong.map((c) => c.difference)));
@@ -21972,6 +22049,8 @@ function checkDocument(sent, got, total, expectedTotal, columns = {}) {
   };
   const idx = (type) => got.map((g, i) => ({ g, i })).filter((x) => x.g.type === type);
   const sentTax = sent.filter((s) => s.kind === "tax");
+  const indexOf = (kind) => sent.map((s, i) => s.kind === kind ? i : -1).filter((i) => i >= 0);
+  const taxIdx = indexOf("tax"), percIdx = indexOf("percent"), subIdx = indexOf("subtotal");
   idx("tax").forEach(({ g, i }, k) => {
     const s = sentTax[k];
     if (s?.printed !== void 0)
@@ -21988,6 +22067,7 @@ function checkDocument(sent, got, total, expectedTotal, columns = {}) {
           return v === void 0 ? void 0 : abs(v);
         }
       ));
+    if (s?.printed !== void 0) checks[checks.length - 1].item = taxIdx[k];
   });
   const sentPerc = sent.filter((s) => s.kind === "percent");
   idx("percent").forEach(({ g, i }, k) => {
@@ -22005,6 +22085,7 @@ function checkDocument(sent, got, total, expectedTotal, columns = {}) {
           return v === void 0 ? void 0 : abs(v);
         }
       ));
+    if (s?.printed !== void 0) checks[checks.length - 1].item = percIdx[k];
   });
   const sentSub = sent.filter((s) => s.kind === "subtotal");
   let lastDiff;
@@ -22015,6 +22096,7 @@ function checkDocument(sent, got, total, expectedTotal, columns = {}) {
     if (!c.ok && lastDiff !== void 0 && c.difference === lastDiff) c.follows = true;
     if (!c.ok) lastDiff = c.difference;
     else lastDiff = void 0;
+    c.item = subIdx[k];
     checks.push(c);
   });
   if (expectedTotal !== void 0 && total !== void 0) {
@@ -22415,7 +22497,7 @@ function fromResult(r, res) {
       if (!sameAmount(sum, res.total)) warnings.push(`Sum of the confirmed lines (${sum}) differs from the DeskCalc total (${res.total}). Ask the user before relying on it.`);
     }
     const corrections = diffLines(r.sent, res.lines);
-    const checks = checkDocument(r.sent, res.lines, res.total, r.expectedTotal, r.columns);
+    const checks = checkDocument(r.sent, res.lines, res.total, r.expectedTotal, r.columns).map(({ item, ...c }) => c);
     const bad = checks.filter((c) => !c.ok);
     let message = corrections.length ? `The user checked the tape in DeskCalc, made ${corrections.length} correction(s) and pressed Confirm. Use the total below.` : "The user checked every line in DeskCalc and pressed Confirm without changes. Use the total below.";
     if (checks.length) {
@@ -22704,7 +22786,7 @@ async function verifyNumbers(input, hooks = {}) {
   const prev = input.replace_review_id ? reviews.get(input.replace_review_id) : auto;
   lastOutdated = void 0;
   const replace = prev?.final?.status === "confirmed" ? prev.id : void 0;
-  const job = buildJob(id, input.title, items, replace);
+  const job = buildJob(id, input.title, items, replace, precheck(items, expectedTotal, columns));
   writeFileSync(base + ".xml.tmp", job.bytes);
   renameSync(base + ".xml.tmp", base + ".xml");
   const r = { id, base, title: cleanLabel(input.title) || "Verify", inputTitle: input.title, sent: items, expectedTotal, columns, ...rowCount ? { rowLabels: input.row_labels ?? {} } : {}, started: Date.now(), acked: false };
