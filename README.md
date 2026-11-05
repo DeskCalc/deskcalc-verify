@@ -89,6 +89,12 @@ Then say "save the audit record": the PDF for the working papers lands in
 </tr>
 </table>
 
+When a printed figure does not add up, DeskCalc 11.3.1 pins the document as printed next to the
+check - the wrong line in red, the figures that only follow from it in yellow (green frame when
+everything matches):
+
+![DeskCalc Verify: the invoice as printed on the left, the wrong line in red; DeskCalc's calculation on the right](samples/images/verify-document-tape.png)
+
 How the cross-footed table looks on the DeskCalc tape - every row is a block, DeskCalc adds net +
 VAT itself and puts it next to the gross printed on the document:
 
