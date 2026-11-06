@@ -383,3 +383,18 @@ describe('audit record layout', () => {
     expect(text).not.toContain('DeskCalc 73.583,19');
   });
 });
+
+describe('position discount in the precheck (V10)', () => {
+  it('shows the discount the document implies and marks the discount line', () => {
+    const items: Item[] = [
+      { kind: 'qty', label: 'Pos.1', qty: '6', price: '12.9', value: '77.4', printed: '73.53', disc: '10', discAmount: '-7.74' },
+      { kind: 'amount', label: 'Rabatt 10 % Pos.1', value: '-7.74', discLine: true },
+      { kind: 'qty', label: 'Pos.2', qty: '2', price: '25', value: '50', printed: '50' },
+    ];
+    const p = precheck(items, '123.53')!;
+    expect(p.docs.slice(0, 2)).toEqual(['77.40', '-3.87']);
+    expect(p.marks.get(1)).toBe('err');
+    expect(p.marks.has(0)).toBe(false);
+    expect(p.total).toEqual({ value: '123.53', mark: 'follow' });
+  });
+});

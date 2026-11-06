@@ -9,7 +9,7 @@ import { reconcile, type Reconciliation } from './compare.js';
 import { buildAuditPdf, auditFileName, type Lang } from './audit.js';
 import {
   buildJob, parseResult, diffLines, decimalSum, decimalMul, sameAmount, normaliseValue, cleanLabel,
-  checkDocument, rowParts, precheck, roundCents, MAX_LINES, type ColumnTotals, type Item, type Correction, type DeskCalcResult, type ResultLine, type Check,
+  checkDocument, rowParts, precheck, roundCents, MAX_LINES, type ColumnTotals, type Item, type Correction, type DeskCalcResult, type ResultLine, type Check, positionDiscount,
 } from './protocol.js';
 
 export const ACK_TIMEOUT_MS = Number(process.env.DESKCALC_ACK_TIMEOUT_MS ?? 15000);
@@ -247,6 +247,7 @@ export interface VerifyItemInput {
   value?: number | string;      // amount; with qty/price: the printed line total; tax: the printed tax amount
   qty?: number | string;
   price?: number | string;
+  discount?: number | string;   // with qty/price: discount on this position in percent (10 = 10 % off)
   rate?: number | string;       // tax rate in %; percent: negative = discount, positive = surcharge
   included?: boolean;           // tax contained in the amounts above (gross prices)
   net?: number | string;        // cross-footing: printed net of the row (value = printed gross)
@@ -281,7 +282,7 @@ function rerunItems(sent: Item[], got: ResultLine[]): VerifyItemInput[] {
     return s?.printed;
   };
   const out: VerifyItemInput[] = [];
-  let block = 0;
+  let block = 0, skipDisc = false;
   for (const g of got) {
     if (groups.length && (g.block ?? 1) !== block) {
       block = g.block ?? 1;
@@ -297,8 +298,13 @@ function rerunItems(sent: Item[], got: ResultLine[]): VerifyItemInput[] {
       const p = printedFor('percent', g.label);
       out.push({ type: 'percent', rate: g.rate, label: g.label, ...(p !== undefined ? { value: p } : {}) });
     } else if (g.qty !== undefined) {
-      const p = printedFor('qty', g.label);
-      out.push({ label: g.label, qty: g.qty, price: g.price, ...(p !== undefined ? { value: p } : {}) });
+      const s = sent.find(x => !used.has(x) && x.kind === 'qty' && x.label === g.label);
+      if (s) used.add(s);
+      out.push({ label: g.label, qty: g.qty, price: g.price, ...(s?.disc !== undefined ? { discount: s.disc } : {}),
+                 ...(s?.printed !== undefined ? { value: s.printed } : {}) });
+      if (s?.disc !== undefined) skipDisc = true;    // its discount line follows; recomputed from qty x price
+    } else if (skipDisc) {
+      skipDisc = false;
     } else {
       out.push({ label: g.label, value: g.value });
     }
@@ -350,7 +356,17 @@ function toItem(x: VerifyItemInput, line: number): Item | { error: string } {
     if (!(Number(qty) > 0)) return { error: `Line ${line}: qty must be greater than 0.` };
     let printed: string | undefined;
     if (x.value !== undefined) { const p = num(x.value, 'value'); if (typeof p !== 'string') return p; printed = p; }
-    return { kind: 'qty', label, qty, price, value: decimalMul(qty, price), printed };
+    const value = decimalMul(qty, price);
+    if (x.discount !== undefined && Number(x.discount) !== 0) {
+      // Discount on this position (V10): qty x price, then the discount as its own line, so the
+      // tape shows both; the line total is rounded to the cent like invoices do.
+      const d0 = num(x.discount, 'discount'); if (typeof d0 !== 'string') return d0;
+      const disc = d0.replace(/^-/, '');      // "-10" and "10" both mean 10 % off
+      if (!(Number(disc) > 0 && Number(disc) <= 100)) return { error: `Line ${line}: discount must be a percent between 0 and 100 (10 = 10 % off).` };
+      const discAmount = positionDiscount(value, disc);
+      return { kind: 'qty', label, qty, price, value, printed, disc, discAmount };
+    }
+    return { kind: 'qty', label, qty, price, value, printed };
   }
   const value = num(x.value, 'value'); if (typeof value !== 'string') return value;
   if ((x.net === undefined) !== (x.tax === undefined)) return { error: `Line ${line}: cross-footing needs both net and tax (value = gross).` };
@@ -410,6 +426,10 @@ export async function verifyNumbers(input: VerifyInput, hooks: WaitHooks = {}): 
         return { status: 'bad_request', message: `Line ${i + 1}: a ${it.kind} line needs the positions it applies to above it (in the same group).`, problem: { line: i + 1 } };
     } else inBlock++;
     items.push(it);
+    if (it.kind === 'qty' && it.disc !== undefined) {
+      items.push({ kind: 'amount', label: cleanLabel(`${de ? 'Rabatt' : 'Discount'} ${it.disc} % ${it.label}`), value: it.discAmount!, discLine: true });
+      inBlock++;
+    }
   }
   if (items.length && inBlock === 0)
     return { status: 'bad_request', message: 'The last group has no positions.', problem: { line: items.length } };

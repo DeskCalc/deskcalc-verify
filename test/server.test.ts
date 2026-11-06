@@ -161,6 +161,85 @@ describe('deskcalc-verify over MCP', () => {
     await c.close();
   });
 
+  // V10: a discount on one position (Rabatt column). Tape: qty x price, then the discount line.
+  const discounted = (line1: number, tax: number, total: number, extra: Record<string, unknown> = {}) => ({
+    title: 'Positionsrabatt',
+    items: [
+      { label: 'Pos.1 Bohrer', qty: 6, price: 12.9, discount: 10, value: line1, ...extra },
+      { label: 'Pos.2 Duebel', qty: 2, price: 25, value: 50 },
+      { type: 'tax', rate: 20, label: 'USt 20 %', value: tax },
+    ],
+    expected_total: total,
+  });
+
+  it('checks a discount on a single position', async () => {
+    const c = await connect({ FAKE_MODE: 'confirm' });
+    const r = await call(c, 'verify_numbers', discounted(69.66, 23.93, 143.59));
+    expect(r.status).toBe('confirmed');
+    expect(r.document_check.ok).toBe(true);
+    expect(r.lines.map((l: any) => l.value)).toEqual(['77.4', '-7.74', '50', expect.stringMatching(/^23\.93/)]);
+    expect(r.document_check.checks[0].check).toMatch(/6 x 12\.9 - 10 %/);
+    expect(r.corrections).toEqual([]);
+    await c.close();
+  });
+
+  it('finds a wrong discounted line total; tax and total only follow from it', async () => {
+    const c = await connect({ FAKE_MODE: 'confirm' });
+    const r = await call(c, 'verify_numbers', discounted(73.53, 24.71, 148.24));
+    expect(r.document_check.ok).toBe(false);
+    const bad = r.document_check.checks.filter((x: any) => !x.ok);
+    expect(bad.map((x: any) => [x.check.split(' ')[0], !!x.follows])).toEqual([['line', false], ['tax', true], ['total', true]]);
+    expect(bad[0]).toMatchObject({ document: '73.53', deskcalc: '69.66' });
+    await c.close();
+  });
+
+  it('discount edge cases: sign, zero, out of range, rounding, credit note, 100 %', async () => {
+    const c = await connect({ FAKE_MODE: 'confirm' });
+    const neg = await call(c, 'verify_numbers', discounted(69.66, 23.93, 143.59, { discount: -10 }));
+    expect(neg.document_check.ok).toBe(true);
+    const zero = await call(c, 'verify_numbers', discounted(77.4, 25.48, 152.88, { discount: 0 }));
+    expect(zero.lines).toHaveLength(3);                       // no discount line
+    expect(zero.document_check.ok).toBe(true);
+    const bad = await call(c, 'verify_numbers', discounted(1, 1, 1, { discount: 150 }));
+    expect(bad.status).toBe('bad_request');
+    expect(bad.message).toMatch(/discount/);
+    // 3 x 4.99 = 14.97, -15 % = 12.7245 -> 12.72 (line total rounded like invoices)
+    const rnd = await call(c, 'verify_numbers', { title: 'r', items: [{ label: 'a', qty: 3, price: 4.99, discount: 15, value: 12.72 }], expected_total: 12.72 });
+    expect(rnd.document_check.ok).toBe(true);
+    expect(rnd.lines[1].value).toBe('-2.25');
+    // credit note: 2 x -10, -10 % = -18
+    const cn = await call(c, 'verify_numbers', { title: 'g', items: [{ label: 'a', qty: 2, price: -10, discount: 10, value: -18 }], expected_total: -18 });
+    expect(cn.document_check.ok).toBe(true);
+    expect(cn.lines[1].value).toBe('2');
+    const full = await call(c, 'verify_numbers', { title: 'f', items: [{ label: 'a', qty: 1, price: 9.99, discount: 100, value: 0 }, { label: 'b', value: 5 }], expected_total: 5 });
+    expect(full.document_check.ok).toBe(true);
+    await c.close();
+  });
+
+  it('second pass keeps the position discount (not a separate amount line)', async () => {
+    const c = await connect({ FAKE_MODE: 'edit_qty_once' });
+    const args = {
+      title: 'Rabatt gemischt',
+      items: [
+        { type: 'group', label: '20 %' },
+        { label: 'Pos.1 Bohrer', qty: 6, price: 12.9, discount: 10, value: 69.66 },
+        { type: 'tax', rate: 20, label: 'USt 20 %', value: 13.93 },
+        { type: 'group', label: '10 %' },
+        { label: 'Pos.2 Buch', qty: 1, price: 30, value: 30 },
+        { type: 'tax', rate: 10, label: 'USt 10 %', value: 3 },
+      ],
+    };
+    const r1 = await call(c, 'verify_numbers', args);
+    expect(r1.gt_outdated).toBe(true);
+    const p1 = r1.rerun.items.find((x: any) => x.label === 'Pos.1 Bohrer');
+    expect(p1).toMatchObject({ qty: '7', discount: '10', value: '69.66' });
+    expect(r1.rerun.items).toHaveLength(args.items.length);
+    const r2 = await call(c, 'verify_numbers', r1.rerun);
+    expect(r2.status).toBe('confirmed');
+    expect(r2.lines.find((l: any) => /10 %.*Bohrer/.test(l.label)).value).toBe('-9.03');   // 7 x 12.90 = 90.30, -10 %
+    await c.close();
+  });
+
   const mixed = {
     title: 'Gemischt',
     items: [

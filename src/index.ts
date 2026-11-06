@@ -59,8 +59,10 @@ server.registerTool(
       'put it after the taxable lines; DeskCalc computes the tax from the subtotal above and recomputes it when the ' +
       'user corrects a line; value is the printed tax amount; included=true for gross prices ("incl. VAT"). ' +
       '(4) discount/surcharge in percent on the subtotal above: {type:"percent", rate, value?} - rate -3 for ' +
-      '"3 % Rabatt", -2 for "2 % Skonto", +5 for a surcharge; value is the printed amount. A discount on a single ' +
-      'position: give that position with its discounted amount or as a separate negative amount line. Prices per ' +
+      '"3 % Rabatt", -2 for "2 % Skonto", +5 for a surcharge; value is the printed amount. A DISCOUNT ON A SINGLE ' +
+      'POSITION ("Rabatt"/"Disc." column): {label, qty, price, discount: 10, value: printed line total} - discount in ' +
+      'percent; DeskCalc shows qty x price and the discount below it, the check compares the printed line total. ' +
+      'Never derive the discount from the printed total. Prices per ' +
       '100/1000 units: convert to a unit price or give the line total as an amount. ' +
       '(5) MIXED TAX RATES (e.g. 20 % and 10 % on one invoice): a tax line always applies to the whole ' +
       'subtotal above, so put the positions of each rate in their own group: {type:"group", label:"20 %"}, its ' +
@@ -100,6 +102,7 @@ server.registerTool(
           .describe('Amount. With qty/price: the printed line total (for the check). With type "tax": the printed tax amount (for the check).'),
         qty: z.union([z.number(), z.string()]).optional().describe('Quantity (with price).'),
         price: z.union([z.number(), z.string()]).optional().describe('Unit price (with qty).'),
+        discount: z.union([z.number(), z.string()]).optional().describe('With qty/price: discount on this position in percent, e.g. 10 for "10 % Rabatt" (value = printed line total after the discount).'),
         rate: z.union([z.number(), z.string()]).optional().describe('Percent: tax rate (type "tax", e.g. 19) or discount/surcharge (type "percent", e.g. -3 for 3 % discount).'),
         included: z.boolean().optional().describe('Tax is included in the amounts above (gross prices). Default false (tax added on top).'),
         net: z.union([z.number(), z.string()]).optional().describe('Cross-footing a table row: printed net of the row (value = printed gross, tax = printed tax).'),

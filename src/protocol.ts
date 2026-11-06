@@ -36,6 +36,9 @@ export interface Item {
   net?: string;          // cross-footing input: printed net and tax of this row (value = gross)
   tax?: string;
   row?: 'group' | 'net' | 'tax' | 'gross';   // part of a cross-footed row (one block per row)
+  disc?: string;         // qty line with a discount on this position, in percent (10 = 10 % off)
+  discAmount?: string;   // its discount as sent on the next line (negative, to the cent)
+  discLine?: boolean;    // the amount line that carries the discount of the qty line above
 }
 
 export interface ResultLine {
@@ -125,6 +128,17 @@ export function roundCents(v: string): string {
   const neg = r < 0n;
   const abs = (neg ? -r : r).toString().padStart(3, '0');
   return (neg ? '-' : '') + abs.slice(0, -2) + '.' + abs.slice(-2);
+}
+
+/**
+ * Discount on one position (V10): the amount of the discount line under qty x price, so that
+ * both lines add up to the line total as invoices print it - qty x price less disc %, rounded
+ * to the cent. Negative for a normal position, positive for a credit note.
+ */
+export function positionDiscount(lineValue: string, discPercent: string): string {
+  const m = (v: string) => (v.startsWith('-') ? v.slice(1) : '-' + v);
+  const net = decimalSum([lineValue, m(mulDiv(lineValue, discPercent, '100'))]);
+  return decimalSum([roundCents(net), m(roundCents(lineValue))]);
 }
 
 /** DeskCalc writes %.15g; compare numerically with a small tolerance. */
@@ -296,7 +310,7 @@ export interface Check {
 }
 
 /** a * b / c on exact decimals (for included tax: base * r / (100 + r)). */
-function mulDiv(a: string, b: string, c: string): string {
+export function mulDiv(a: string, b: string, c: string): string {
   const scale = 10n ** BigInt(SCALE);
   const num = toUnits(plain(a)) * toUnits(plain(b)) * scale;
   const den = toUnits(plain(c)) * scale;
@@ -411,13 +425,19 @@ export function precheck(items: Item[], expectedTotal?: string, columns: ColumnT
     else if (c.item !== undefined) marks.set(c.item, m);
   }
   const neg = (v: string) => (v.startsWith('-') ? v : '-' + v);
+  const flip = (v: string) => (v.startsWith('-') ? v.slice(1) : '-' + v);
   const pos = (v: string) => v.replace(/^-/, '');
   const docs = items.map((it, i) => {
     const line = sim.lineOf[i] !== undefined ? sim.lines[sim.lineOf[i]!] : undefined;
     switch (it.kind) {
       case 'group': return undefined;
-      case 'amount': return it.value;
-      case 'qty': return it.printed ?? roundCents(it.value);
+      case 'amount': {
+        // Discount line: the discount the document implies (printed line total - qty x price).
+        const q = items[i - 1];
+        if (it.discLine && q?.printed !== undefined) return roundCents(decimalSum([q.printed, flip(roundCents(q.value))]));
+        return it.value;
+      }
+      case 'qty': return it.disc !== undefined ? roundCents(it.value) : it.printed ?? roundCents(it.value);
       case 'subtotal': return it.printed;
       case 'tax': return it.printed === undefined ? roundCents(line!.value) : it.included ? neg(pos(it.printed)) : pos(it.printed);
       case 'percent': return it.printed === undefined ? roundCents(line!.value) : Number(it.rate) < 0 ? neg(pos(it.printed)) : pos(it.printed);
@@ -462,7 +482,11 @@ export function checkDocument(sent: Item[], got: ResultLine[], total: string | u
 
   sent.forEach((s, i) => {
     if (s.kind === 'qty' && s.printed !== undefined)
-      checks.push({ ...mk(`line ${i + 1} "${s.label}": ${s.qty} x ${s.price}`, s.printed, s.value), item: i });
+      checks.push(s.disc !== undefined
+        // Discounted position: the printed line total against qty x price less the discount;
+        // marked on the discount line (DeskCalc shows qty x price and the discount below it).
+        ? { ...mk(`line ${i + 1} "${s.label}": ${s.qty} x ${s.price} - ${s.disc} %`, s.printed, decimalSum([roundCents(s.value), s.discAmount!])), item: i + 1 }
+        : { ...mk(`line ${i + 1} "${s.label}": ${s.qty} x ${s.price}`, s.printed, s.value), item: i });
   });
   // Cross-footing (Querfußen): each row is a block on the tape - net, tax and the printed
   // gross as a checkpoint, so DeskCalc itself shows net + tax. Net and tax are the values
@@ -487,7 +511,11 @@ export function checkDocument(sent: Item[], got: ResultLine[], total: string | u
   const gotQty = got.map((g, i) => ({ g, i })).filter(x => !x.g.type && x.g.qty !== undefined);
   if (checks.some(c => !c.ok && c.check.startsWith('line ')) && sentQty.length === gotQty.length) {
     const asPrinted = got.map(g => ({ ...g }));
-    gotQty.forEach(({ i }, k) => { if (sentQty[k].printed !== undefined) asPrinted[i].value = sentQty[k].printed!; });
+    gotQty.forEach(({ i }, k) => {
+      const s = sentQty[k];
+      // A discounted position: qty line + discount line on the tape add up to the printed total.
+      if (s.printed !== undefined) asPrinted[i].value = s.disc !== undefined ? decimalSum([s.printed, neg(s.discAmount!)]) : s.printed;
+    });
     docModels.push(roundedModel(asPrinted), roundedModel(asPrinted, true));
   }
   const carried = (c: Check, printed: (m: ReturnType<typeof roundedModel>) => string | undefined) => {

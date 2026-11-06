@@ -36,11 +36,13 @@ def expectation(name, lang):
 def main(paths):
     out = []
     for p in paths:
-        lang = 'de' if '-de' in os.path.basename(p) else 'en'
-        stamp = os.path.basename(p)[7:17]
+        base = os.path.basename(p)
+        lang = 'de' if '-de' in base else 'en'
+        stamp = base[7:17]
+        model = next((m for m in ('sonnet', 'haiku', 'opus') if f'-{m}' in base), '')
         for name, runs in json.load(open(p, encoding='utf-8')).items():
             for i, r in enumerate(runs):
-                folder = os.path.join(SHOTS, f'{stamp}-{lang}', name)
+                folder = os.path.join(SHOTS, f"{stamp}-{lang}{'-' + model if model else ''}", name)
                 imgs = sorted(glob.glob(os.path.join(folder, f'run{i + 1}-*.png')))
                 out.append((lang, name, i + 1, r, imgs))
     if not out: sys.exit('nothing to report')

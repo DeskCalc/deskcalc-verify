@@ -20,6 +20,8 @@ args = [a for a in sys.argv[1:]]
 RUNS = int(args.pop(0)) if args and args[0].isdigit() else 5
 LANG = args.pop(0) if args and args[0] in ('en', 'de') else 'en'
 ONLY = set(args)
+MODEL = os.environ.get('MATRIX_MODEL', '')       # e.g. sonnet, haiku (claude --model); empty = account default
+TAG = f'-{MODEL}' if MODEL else ''
 S = os.path.join(ROOT, 'samples', LANG)
 
 def prompt(name):
@@ -110,7 +112,7 @@ TOOLS = ['mcp__deskcalc-verify__verify_numbers', 'mcp__deskcalc-verify__get_veri
 import ctypes, ctypes.wintypes as wt, time, threading
 from PIL import ImageGrab
 user32 = ctypes.windll.user32; user32.SetProcessDPIAware()
-SHOTS = os.path.join(os.path.dirname(__file__), 'shots', f"{datetime.date.today().isoformat()}-{LANG}")
+SHOTS = os.path.join(os.path.dirname(__file__), 'shots', f"{datetime.date.today().isoformat()}-{LANG}{TAG}")
 
 def grids(main):
     found = []
@@ -174,7 +176,7 @@ def run_once(name, case):
     files = '\n'.join(os.path.join(S, f) for f in case['files'])
     fv.restart_probe()
     p = subprocess.run(['claude', '-p', f'{text}\n\nAttached:\n{files}', '--mcp-config', cfgfile, '--allowedTools', *TOOLS,
-                        '--output-format', 'stream-json', '--verbose'], capture_output=True, text=True, encoding='utf-8', timeout=1200)
+                        '--output-format', 'stream-json', '--verbose'] + (['--model', MODEL] if MODEL else []), capture_output=True, text=True, encoding='utf-8', timeout=1200)
     sent, results, compares, answer = [], [], [], ''
     for line in p.stdout.splitlines():
         try: ev = json.loads(line)
@@ -226,7 +228,7 @@ try:
 finally:
     clicker.stop = True
 stamp = datetime.date.today().isoformat()
-md = [f'# Prüfmatrix {stamp} ({LANG}, {RUNS} runs each)', '',
+md = [f'# Prüfmatrix {stamp} ({LANG}, {RUNS} runs each, model {MODEL or "default"})', '',
       '| Sample | runs | error found | false alarm | printed figures sent | avg. calls | answer names key figure |', '|---|---|---|---|---|---|---|']
 for n, k, fo, fa, pr, ca, an in rows:
     md.append(f'| {n} | {k} | {fo}/{k} | {fa}/{k} | {pr}/{k} | {ca:.1f} | {an}/{k} |')
@@ -235,7 +237,7 @@ md += ['', f'Overall: error found {found}/{total} ({100 * found / max(total, 1):
        'Threshold: >= 95 % found, 0 false alarms.']
 # a run of selected samples gets its own file - it must not overwrite the full matrix of the day
 sub = '-subset-' + datetime.datetime.now().strftime('%H%M') if ONLY else ''
-out = os.path.join(os.path.dirname(__file__), f'matrix-{stamp}-{LANG}{sub}')
+out = os.path.join(os.path.dirname(__file__), f'matrix-{stamp}-{LANG}{TAG}{sub}')
 open(out + '.md', 'w', encoding='utf-8').write('\n'.join(md) + '\n')
 json.dump(raw, open(out + '.json', 'w', encoding='utf-8'), indent=1, ensure_ascii=False)
 print('\n'.join(md)); print('->', out + '.md')
