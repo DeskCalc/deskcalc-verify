@@ -1,0 +1,79 @@
+{
+ "V9-credit-note": {
+  "files": [
+   "V9 Credit note/Credit note CN-2026-0318.pdf"
+  ],
+  "prompt": "check_invoice",
+  "text": null,
+  "first": "23.13",
+  "wrong": [
+   "139.68",
+   "23.13"
+  ],
+  "key": "23.31"
+ },
+ "V10-two-rates": {
+  "files": [
+   "V10 Two VAT rates/Invoice INV-2026-2077.pdf"
+  ],
+  "prompt": "check_invoice",
+  "text": null,
+  "first": "73.53",
+  "wrong": [
+   "177.53",
+   "35.51",
+   "402.53",
+   "438.04",
+   "449.29",
+   "73.53",
+   "8.77"
+  ],
+  "key": "69.66"
+ },
+ "V11-skonto": {
+  "files": [
+   "V11 Early payment discount/Invoice INV-2026-2090.pdf"
+  ],
+  "prompt": "check_invoice",
+  "text": null,
+  "first": "28.80",
+  "wrong": [
+   "-1375.20",
+   "-28.80",
+   "1375.20",
+   "28.80"
+  ],
+  "key": "28.08"
+ },
+ "V12-receipt-photo": {
+  "files": [
+   "V12 Till receipt photo/Till receipt corner shop.jpg"
+  ],
+  "prompt": "check_invoice",
+  "text": null,
+  "first": "4.77",
+  "wrong": [
+   "14.98",
+   "17.98",
+   "3.00",
+   "4.77",
+   "42.87"
+  ],
+  "key": "4.47"
+ },
+ "V13-carry-over": {
+  "files": [
+   "V13 Carried forward/Invoice INV-2026-2102.pdf"
+  ],
+  "prompt": "check_invoice",
+  "text": null,
+  "first": "6763.21",
+  "wrong": [
+   "11481.53",
+   "13777.84",
+   "2296.31",
+   "6763.21"
+  ],
+  "key": "6762.31"
+ }
+}

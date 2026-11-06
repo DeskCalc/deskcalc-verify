@@ -1,0 +1,6 @@
+V13 Zweiseitige Rechnung mit Übertrag - Musterlösung
+
+"Rechnung RE-2026-2102.pdf" anhängen, Prompt "Check an invoice".
+24 Positionen auf 2 Seiten; Übertrag am Ende von Seite 1 und am Anfang von Seite 2.
+Fehler: Übertrag gedruckt 6.763,21, Summe der Positionen 1-14 = 6.762,31 (Zahlendreher).
+Folgefehler: Summe netto 11.481,53 statt 11.480,63, USt 2.296,31 statt 2.296,13, Rechnungsbetrag 13.777,84 statt 13.776,76.

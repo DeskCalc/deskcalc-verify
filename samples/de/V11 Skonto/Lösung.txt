@@ -1,0 +1,6 @@
+V11 Skonto - Musterlösung
+
+"Rechnung RE-2026-2090.pdf" anhängen, Prompt "Check an invoice".
+Netto 1.170,00, USt 234,00, Rechnungsbetrag 1.404,00 - richtig.
+Fehler: 2 % Skonto von 1.404,00 = 28,08, gedruckt 28,80 (Zahlendreher).
+Zahlbetrag bei Skonto gedruckt 1.375,20, richtig 1.375,92 - Folgefehler.

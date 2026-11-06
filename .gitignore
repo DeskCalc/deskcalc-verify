@@ -6,3 +6,5 @@ fuzz/report-*.md
 fuzz/failures-*.json
 __pycache__/
 fuzz/matrix-*
+fuzz/public/
+fuzz/shots/

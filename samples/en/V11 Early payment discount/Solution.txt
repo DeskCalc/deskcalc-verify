@@ -1,0 +1,6 @@
+V11 Early payment discount - solution
+
+Attach "Invoice INV-2026-2090.pdf", prompt "Check an invoice".
+Net 1,170.00, VAT 234.00, total due 1,404.00 - correct.
+Error: 2 % of 1,404.00 = 28.08, printed 28.80 (transposed digits).
+Amount payable with discount printed 1,375.20, correct 1,375.92 - follows.

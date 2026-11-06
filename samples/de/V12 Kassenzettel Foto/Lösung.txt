@@ -1,0 +1,6 @@
+V12 Kassenzettel als Foto - Musterlösung
+
+"Kassenzettel Nahversorger.jpg" (Foto, leicht schräg) anhängen, Prompt "Check an invoice" oder "Add up expense receipts".
+12 Positionen, zwei Steuersätze (A 10 %, B 20 %), Mengenzeilen "3 x 1,49".
+Fehler: Schokolade 3 x 1,49 = 4,47, gedruckt 4,77.
+SUMME gedruckt 42,87, richtig 42,57 - Folgefehler; ebenso die MwSt-Zeile des betroffenen Satzes.

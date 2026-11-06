@@ -1,0 +1,6 @@
+V9 Gutschrift - Musterlösung
+
+"Gutschrift GS-2026-0318.pdf" anhängen, Prompt "Check an invoice".
+Gutschrift = Rechnung mit umgekehrtem Vorzeichen; Claude darf positiv oder negativ schicken.
+Fehler: USt gedruckt 23,13, richtig 20 % von 116,55 = 23,31 (Zahlendreher in den Cent).
+Gutschriftsbetrag gedruckt 139,68, richtig 139,86 - Folgefehler.

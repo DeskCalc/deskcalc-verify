@@ -1,0 +1,8 @@
+V10 Zwei Steuersätze und Positionsrabatt - Musterlösung
+
+"Rechnung RE-2026-2077.pdf" anhängen, Prompt "Check an invoice".
+Pos. 3 und 4 haben 10 % Positionsrabatt, zwei USt-Sätze (10 % und 20 %).
+Fehler: Pos. 4 USB-Stick 64 GB: 6 x 12,90 = 77,40 abzüglich 10 % = 69,66, gedruckt 73,53 (nur 5 % abgezogen).
+Folgefehler: Netto 20 % 177,53 statt 173,66, USt 20 % 35,51 statt 34,73,
+Rechnungsbetrag 460,54 statt 455,89 (Differenz 4,65).
+10-%-Teil ist richtig (Netto 225,00, USt 22,50).

@@ -1,0 +1,8 @@
+V10 Two VAT rates and a line discount - solution
+
+Attach "Invoice INV-2026-2077.pdf", prompt "Check an invoice".
+Items 3 and 4 carry a 10 % line discount; two VAT rates (5 % and 20 %).
+Error: item 4 USB stick 64 GB: 6 x 12.90 = 77.40 less 10 % = 69.66, printed 73.53 (only 5 % taken off).
+Follows: net 20 % 177.53 instead of 173.66, VAT 20 % 35.51 instead of 34.73,
+total due 449.29 instead of 444.64 (difference 4.65).
+The 5 % part is correct (net 225.00, VAT 11.25).

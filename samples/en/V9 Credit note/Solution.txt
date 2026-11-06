@@ -1,0 +1,6 @@
+V9 Credit note - solution
+
+Attach "Credit note CN-2026-0318.pdf", prompt "Check an invoice".
+A credit note is an invoice with the sign reversed; the AI may send positive or negative amounts.
+Error: VAT printed 23.13, correct 20 % of 116.55 = 23.31 (transposed pence).
+Total credit printed 139.68, correct 139.86 - follows from the VAT.

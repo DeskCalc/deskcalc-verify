@@ -1,0 +1,6 @@
+V13 Two-page invoice with carry-over - solution
+
+Attach "Invoice INV-2026-2102.pdf", prompt "Check an invoice".
+24 items on 2 pages; carried forward at the end of page 1 and brought forward on page 2.
+Error: carried forward printed 6,763.21, sum of items 1-14 = 6,762.31 (transposed digits).
+Follows: net total 11,481.53 instead of 11,480.63, VAT 2,296.31 instead of 2,296.13, total due 13,777.84 instead of 13,776.76.

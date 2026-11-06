@@ -1,0 +1,6 @@
+V12 Till receipt as a photo - solution
+
+Attach "Till receipt corner shop.jpg" (photo, slightly skewed), prompt "Check an invoice" or "Add up expense receipts".
+12 lines, two VAT rates (A 0 %, B 20 %), quantity lines "3 x 1.49".
+Error: chocolate 3 x 1.49 = 4.47, printed 4.77.
+TOTAL printed 42.87, correct 42.57 - follows; so does the VAT line of that rate.
