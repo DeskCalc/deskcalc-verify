@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "com.deskcalc/verify",
   "title": "DeskCalc Verify",
-  "description": "A human checks and confirms the figures an AI extracted (invoices, receipts, statements) in DeskCalc.",
+  "description": "A human checks and confirms in DeskCalc the figures an AI read from invoices, receipts, statements.",
   "websiteUrl": "https://www.deskcalc.com/deskcalc-verify.html",
   "version": "1.0.0",
   "packages": [
