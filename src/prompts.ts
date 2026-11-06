@@ -24,10 +24,11 @@ export const PROMPTS: PromptDef[] = [
     title: 'Add up expense receipts',
     description: 'A stack of receipts (e.g. 30 for an expense report) on ONE tape, one line per receipt.',
     text:
-      'Add up all attached receipts with DeskCalc (verify_numbers) in ONE call and ONE tape: one amount line per ' +
-      'receipt, label "date vendor" (max. 25 characters), in date order. Do not split into several calls. If I ' +
-      'ask for the input VAT, give each receipt its own group with its tax line (included=true). If the expense ' +
-      'report prints a total, pass it as expected_total.' + COMMON,
+      'Add up all attached receipts with DeskCalc (verify_numbers) in ONE call and ONE tape, in date order, never ' +
+      'one call per receipt. If the receipts print their VAT: give each receipt its own group (label "date vendor", ' +
+      'max. 25 characters) with the gross amount and a tax line (included=true) whose value is the PRINTED VAT - ' +
+      'that is how a misprinted VAT is found. Receipts without printed VAT: one amount line each. If the expense ' +
+      'report prints a total, pass it as expected_total. Tell me the total and the input VAT.' + COMMON,
   },
   {
     name: 'foot_table',

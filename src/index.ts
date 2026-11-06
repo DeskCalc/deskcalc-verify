@@ -68,8 +68,10 @@ server.registerTool(
       'If the result has gt_outdated=true (the user corrected a line, the GT line is a snapshot), call ' +
       'verify_numbers again with exactly the arguments in "rerun" and use that second result. ' +
       '(6) MANY RECEIPTS (expenses, a stack of bills): ONE call, ONE tape - one amount line per receipt ' +
-      '(label "14.10. Hotel"), never one call per receipt. Only if the VAT of each receipt matters, give each ' +
-      'receipt its own group with its tax line (included=true for receipts). ' +
+      '(label "14.10. Hotel"), never one call per receipt. If the receipts print their VAT, ALWAYS give each ' +
+      'receipt its own group: the gross amount, then its tax line with included=true and the PRINTED VAT as value - ' +
+      'only then can a misprinted VAT be found (the GT is still the total of the receipts). If an expense report ' +
+      'prints a total, pass it as expected_total. ' +
       '(7) PRINTED SUBTOTALS / CARRY-OVERS (bank statement, ledger over several pages, "Übertrag", "Zwischensumme"): ' +
       '{type:"subtotal", label:"Übertrag S.1", value} at that place - DeskCalc shows the running total there and the ' +
       'check names the first carry-over that is wrong. An opening balance is a normal amount line. ' +

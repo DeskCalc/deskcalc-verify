@@ -389,6 +389,33 @@ describe('deskcalc-verify over MCP', () => {
     }
   });
 
+  it('leaves out a 0 % tax line instead of refusing the call', async () => {
+    const c = await connect({ FAKE_MODE: 'confirm' });
+    const r = await call(c, 'verify_numbers', { title: 'Receipts', items: [
+      { type: 'group', label: 'Hotel' }, { label: 'Hotel', value: 120 }, { type: 'tax', rate: 10, included: true, value: 10.91 },
+      { type: 'group', label: 'Train' }, { label: 'Train', value: 41.61 }, { type: 'tax', rate: 0, included: true, value: 0 },
+    ] });
+    expect(r.status).toBe('confirmed');
+    expect(r.lines.filter((l: any) => l.type === 'tax').length).toBe(1);
+    // included tax: total is the net - the result names gross and tax, and groups are no "split" warning
+    expect(r.gross_total).toBe('161.61');
+    expect(r.included_tax_total).toBe('10.91');
+    expect(r.message).toContain('is the NET amount');
+    expect(JSON.stringify(r.warnings ?? [])).not.toContain('split');
+    const bad = await call(c, 'verify_numbers', { title: 'x', items: [{ label: 'a', value: 5 }, { type: 'tax', rate: 0, value: 1.5 }] });
+    expect(bad.status).toBe('bad_request');                   // 0 % but a printed amount: still an error
+    await c.close();
+  });
+
+  it('says so when no printed figures were passed (nothing to compare)', async () => {
+    const c = await connect({ FAKE_MODE: 'confirm' });
+    const r = await call(c, 'verify_numbers', { title: 'Receipts', items: [{ label: 'a', value: 12.5 }, { label: 'b', value: 7.5 }] });
+    expect(r.status).toBe('confirmed');
+    expect(r.message).toContain('Document check: NONE');
+    expect(r.document_check).toBeUndefined();
+    await c.close();
+  });
+
   it('reports a missing DeskCalc', async () => {
     const c = await connect({ DESKCALC_PATH: join(dir, 'nope.exe') });
     const r = await call(c, 'verify_numbers', { title: 'x', items });

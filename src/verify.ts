@@ -9,7 +9,7 @@ import { reconcile, type Reconciliation } from './compare.js';
 import { buildAuditPdf, auditFileName, type Lang } from './audit.js';
 import {
   buildJob, parseResult, diffLines, decimalSum, decimalMul, sameAmount, normaliseValue, cleanLabel,
-  checkDocument, rowParts, precheck, MAX_LINES, type ColumnTotals, type Item, type Correction, type DeskCalcResult, type ResultLine, type Check,
+  checkDocument, rowParts, precheck, roundCents, MAX_LINES, type ColumnTotals, type Item, type Correction, type DeskCalcResult, type ResultLine, type Check,
 } from './protocol.js';
 
 export const ACK_TIMEOUT_MS = Number(process.env.DESKCALC_ACK_TIMEOUT_MS ?? 15000);
@@ -26,6 +26,8 @@ export interface Outcome {
   review_id?: string;
   message: string;
   total?: string;
+  gross_total?: string;          // with included tax: total is NET, this is the gross (total + included tax)
+  included_tax_total?: string;
   lines?: ResultLine[];
   corrections?: Correction[];
   document_check?: { ok: boolean; checks: Check[] };
@@ -103,7 +105,8 @@ function fromResult(r: Review, res: DeskCalcResult): Outcome {
   if (res.status === 'confirmed') {
     const warnings: string[] = [];
     if (res.notes.includes('labels_truncated')) warnings.push('Some labels were longer than 60 characters and were shortened.');
-    if ((res.calculations ?? 1) > 1) warnings.push('The user split the tape into several calculations; total is the last calculation shown by DeskCalc.');
+    // Groups are separate calculations on purpose - only warn when the user split a plain tape.
+    if ((res.calculations ?? 1) > 1 && !r.sent.some(s => s.kind === 'group')) warnings.push('The user split the tape into several calculations; total is the last calculation shown by DeskCalc.');
     const counted = res.lines.filter(l => l.type !== 'subtotal');   // checkpoints only show the running total
     const plain = counted.every(l => !l.op);   // tax and qty lines carry their signed amount
     if (plain && res.total !== undefined && counted.length > 0) {
@@ -116,6 +119,13 @@ function fromResult(r: Review, res: DeskCalcResult): Outcome {
     let message = corrections.length
       ? `The user checked the tape in DeskCalc, made ${corrections.length} correction(s) and pressed Confirm. Use the total below.`
       : 'The user checked every line in DeskCalc and pressed Confirm without changes. Use the total below.';
+    if (!checks.length) {
+      // Nothing printed was passed: no line totals, tax amounts, subtotals or total to compare.
+      message += ' Document check: NONE - no printed figures (line totals, tax amounts, subtotals, total) were passed, ' +
+        'so differences in the document itself cannot be found. Do not tell the user the document is correct. If the ' +
+        'document prints such figures (e.g. the VAT on each receipt, an invoice total), call verify_numbers again with ' +
+        'them (replace_review_id = this review_id).';
+    }
     if (checks.length) {
       message += bad.length
         ? ` Document check: ${bad.length} of ${checks.length} figure(s) do NOT match the confirmed tape - report them to the user: ` +
@@ -129,6 +139,17 @@ function fromResult(r: Review, res: DeskCalcResult): Outcome {
         message += ` ${rounded.length} of them differ from DeskCalc's exact result by a rounding amount only (` +
           rounded.map(c => `${c.check}: ${c.difference}`).join('; ') +
           ') - the document rounds tax/discounts to the cent before adding. This is not an error.';
+    }
+    // Included tax: DeskCalc takes it out of each block, so "total" is the NET. Say so and
+    // give the gross - in a trial Claude took the net for a wrong total (06.11.2026).
+    let gross: { gross_total: string; included_tax_total: string } | undefined;
+    const incl = res.lines.filter(l => l.type === 'tax' && l.included);
+    if (incl.length && res.total !== undefined) {
+      const tax = decimalSum(incl.map(l => l.value.startsWith('-') ? l.value.slice(1) : '-' + l.value));
+      gross = { gross_total: roundCents(decimalSum([res.total, tax])), included_tax_total: roundCents(tax) };
+      message += ` NOTE: the tape takes the included tax out, so "total" (${roundCents(res.total)}) is the NET amount. ` +
+        `Gross (what the documents add up to) = ${gross.gross_total}, included tax = ${gross.included_tax_total} ` +
+        '(exact; a document that rounds the tax per receipt may differ by cents). Report gross, tax and net.';
     }
     // Several blocks: the GT line on the tape is a snapshot (like the GT key). If the
     // user corrected a block, it is outdated - offer a second pass with the
@@ -149,7 +170,8 @@ function fromResult(r: Review, res: DeskCalcResult): Outcome {
       status: 'confirmed',
       message,
       total: res.total,
-      ...(rerun ? { gt_outdated: true, rerun } : {}),
+      ...(gross ?? {}),
+      ...(rerun ?{ gt_outdated: true, rerun } : {}),
       lines: res.lines,
       corrections,
       ...(checks.length ? { document_check: { ok: bad.length === 0, checks } } : {}),
@@ -362,6 +384,11 @@ export async function verifyNumbers(input: VerifyInput, hooks: WaitHooks = {}): 
                gross: cleanLabel(input.row_labels?.gross) || (de ? 'Brutto lt. Beleg' : 'Gross per document') };
   let rowCount = 0, other = 0;
   for (let i = 0; i < input.items.length; i++) {
+    // A 0 % tax line (train ticket, zero-rated receipt) with no or a zero printed amount changes
+    // nothing - leave it out instead of refusing the whole call (real-Claude trial, 06.11.).
+    const raw = input.items[i];
+    if ((raw.type === 'tax' || (raw.rate !== undefined && raw.type === undefined && raw.qty === undefined)) &&
+        Number(raw.rate) === 0 && (raw.value === undefined || Number(raw.value) === 0)) continue;
     const it = toItem(input.items[i], i + 1);
     if ('error' in it) return { status: 'bad_request', message: it.error, problem: { line: i + 1 } };
     if (it.kind === 'amount' && it.net !== undefined) {

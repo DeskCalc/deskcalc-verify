@@ -22489,7 +22489,7 @@ function fromResult(r, res) {
   if (res.status === "confirmed") {
     const warnings = [];
     if (res.notes.includes("labels_truncated")) warnings.push("Some labels were longer than 60 characters and were shortened.");
-    if ((res.calculations ?? 1) > 1) warnings.push("The user split the tape into several calculations; total is the last calculation shown by DeskCalc.");
+    if ((res.calculations ?? 1) > 1 && !r.sent.some((s) => s.kind === "group")) warnings.push("The user split the tape into several calculations; total is the last calculation shown by DeskCalc.");
     const counted = res.lines.filter((l) => l.type !== "subtotal");
     const plain2 = counted.every((l) => !l.op);
     if (plain2 && res.total !== void 0 && counted.length > 0) {
@@ -22500,11 +22500,21 @@ function fromResult(r, res) {
     const checks = checkDocument(r.sent, res.lines, res.total, r.expectedTotal, r.columns).map(({ item, ...c }) => c);
     const bad = checks.filter((c) => !c.ok);
     let message = corrections.length ? `The user checked the tape in DeskCalc, made ${corrections.length} correction(s) and pressed Confirm. Use the total below.` : "The user checked every line in DeskCalc and pressed Confirm without changes. Use the total below.";
+    if (!checks.length) {
+      message += " Document check: NONE - no printed figures (line totals, tax amounts, subtotals, total) were passed, so differences in the document itself cannot be found. Do not tell the user the document is correct. If the document prints such figures (e.g. the VAT on each receipt, an invoice total), call verify_numbers again with them (replace_review_id = this review_id).";
+    }
     if (checks.length) {
       message += bad.length ? ` Document check: ${bad.length} of ${checks.length} figure(s) do NOT match the confirmed tape - report them to the user: ` + bad.map((c) => `${c.check}: document ${c.document}, DeskCalc ${c.deskcalc} (difference ${c.difference})${c.follows ? " - follows from the difference above, not a new error" : ""}`).join("; ") + "." + (bad.some((c) => c.follows) ? ` Only ${bad.filter((c) => !c.follows).length} of these are errors of their own; the other ${bad.filter((c) => c.follows).length} are computed correctly by the document from a wrong figure above - say so, and give the effect on the amount payable.` : "") : ` Document check: all ${checks.length} printed figure(s) match the confirmed tape to the cent.`;
       const rounded = checks.filter((c) => c.ok && c.rounding);
       if (rounded.length)
         message += ` ${rounded.length} of them differ from DeskCalc's exact result by a rounding amount only (` + rounded.map((c) => `${c.check}: ${c.difference}`).join("; ") + ") - the document rounds tax/discounts to the cent before adding. This is not an error.";
+    }
+    let gross;
+    const incl = res.lines.filter((l) => l.type === "tax" && l.included);
+    if (incl.length && res.total !== void 0) {
+      const tax = decimalSum(incl.map((l) => l.value.startsWith("-") ? l.value.slice(1) : "-" + l.value));
+      gross = { gross_total: roundCents(decimalSum([res.total, tax])), included_tax_total: roundCents(tax) };
+      message += ` NOTE: the tape takes the included tax out, so "total" (${roundCents(res.total)}) is the NET amount. Gross (what the documents add up to) = ${gross.gross_total}, included tax = ${gross.included_tax_total} (exact; a document that rounds the tax per receipt may differ by cents). Report gross, tax and net.`;
     }
     let rerun;
     lastOutdated = res.gt?.outdated ? r : void 0;
@@ -22524,6 +22534,7 @@ function fromResult(r, res) {
       status: "confirmed",
       message,
       total: res.total,
+      ...gross ?? {},
       ...rerun ? { gt_outdated: true, rerun } : {},
       lines: res.lines,
       corrections,
@@ -22733,6 +22744,8 @@ async function verifyNumbers(input, hooks = {}) {
   };
   let rowCount = 0, other = 0;
   for (let i = 0; i < input.items.length; i++) {
+    const raw = input.items[i];
+    if ((raw.type === "tax" || raw.rate !== void 0 && raw.type === void 0 && raw.qty === void 0) && Number(raw.rate) === 0 && (raw.value === void 0 || Number(raw.value) === 0)) continue;
     const it = toItem(input.items[i], i + 1);
     if ("error" in it) return { status: "bad_request", message: it.error, problem: { line: i + 1 } };
     if (it.kind === "amount" && it.net !== void 0) {
@@ -22870,7 +22883,7 @@ var PROMPTS = [
     name: "add_expenses",
     title: "Add up expense receipts",
     description: "A stack of receipts (e.g. 30 for an expense report) on ONE tape, one line per receipt.",
-    text: 'Add up all attached receipts with DeskCalc (verify_numbers) in ONE call and ONE tape: one amount line per receipt, label "date vendor" (max. 25 characters), in date order. Do not split into several calls. If I ask for the input VAT, give each receipt its own group with its tax line (included=true). If the expense report prints a total, pass it as expected_total.' + COMMON
+    text: 'Add up all attached receipts with DeskCalc (verify_numbers) in ONE call and ONE tape, in date order, never one call per receipt. If the receipts print their VAT: give each receipt its own group (label "date vendor", max. 25 characters) with the gross amount and a tax line (included=true) whose value is the PRINTED VAT - that is how a misprinted VAT is found. Receipts without printed VAT: one amount line each. If the expense report prints a total, pass it as expected_total. Tell me the total and the input VAT.' + COMMON
   },
   {
     name: "foot_table",
@@ -22976,7 +22989,7 @@ server.registerTool(
   {
     title: "Check numbers in DeskCalc",
     description: `Show numbers as a labelled adding-machine tape in DeskCalc so the user can check every line, correct it and press Confirm. Returns the confirmed total, the lines, the user's corrections and - if you pass the printed figures - a cent-exact check of the document. Use it before you rely on a sum you extracted from receipts, statements or invoices. If the result is "pending", tell the user to finish the check in DeskCalc and call get_verification with the review_id.
-Line kinds: (1) amount: {label, value}. (2) quantity x unit price: {label, qty, price, value?} - value is the printed line total, checked against qty x price. (3) VAT/sales tax: {type:"tax", rate, included?, value?} - put it after the taxable lines; DeskCalc computes the tax from the subtotal above and recomputes it when the user corrects a line; value is the printed tax amount; included=true for gross prices ("incl. VAT"). (4) discount/surcharge in percent on the subtotal above: {type:"percent", rate, value?} - rate -3 for "3 % Rabatt", -2 for "2 % Skonto", +5 for a surcharge; value is the printed amount. A discount on a single position: give that position with its discounted amount or as a separate negative amount line. Prices per 100/1000 units: convert to a unit price or give the line total as an amount. (5) MIXED TAX RATES (e.g. 20 % and 10 % on one invoice): a tax line always applies to the whole subtotal above, so put the positions of each rate in their own group: {type:"group", label:"20 %"}, its positions, its tax line; then {type:"group", label:"10 %"}, ... DeskCalc adds a GT (grand total) line. If the result has gt_outdated=true (the user corrected a line, the GT line is a snapshot), call verify_numbers again with exactly the arguments in "rerun" and use that second result. (6) MANY RECEIPTS (expenses, a stack of bills): ONE call, ONE tape - one amount line per receipt (label "14.10. Hotel"), never one call per receipt. Only if the VAT of each receipt matters, give each receipt its own group with its tax line (included=true for receipts). (7) PRINTED SUBTOTALS / CARRY-OVERS (bank statement, ledger over several pages, "\xDCbertrag", "Zwischensumme"): {type:"subtotal", label:"\xDCbertrag S.1", value} at that place - DeskCalc shows the running total there and the check names the first carry-over that is wrong. An opening balance is a normal amount line. (8) CROSS-FOOTING A TABLE (net, tax, gross columns): one line per row {label, value: gross, net, tax} and nothing else in that call; pass expected_total (gross column total), expected_net_total and expected_tax_total if printed (row_labels: omit - the tape uses DeskCalc's language). DeskCalc shows each row as its own block: net, tax, and the printed gross as a checkpoint. (9) FOREIGN CURRENCY: {label, foreign: 100, currency:"USD", fx_rate: 0.92, value: 92.00} - fx_rate is home currency per 1 unit; if the document quotes the inverse (1 EUR = 1.08 USD), give the printed home amount as a plain amount line and name the rate in the label. For invoices also pass expected_total (the printed amount payable). After a confirmed check, offer save_audit_record (PDF for the working papers); to reconcile two documents (invoice vs delivery note, order or payment), verify both, then call compare_verifications. If you use a figure that is NOT printed on the document (e.g. a fee from a published table, a rate you looked up), say so in the label, e.g. "(Tab. A, web)", and tell the user - the tape must not make your own assumptions look like the document.
+Line kinds: (1) amount: {label, value}. (2) quantity x unit price: {label, qty, price, value?} - value is the printed line total, checked against qty x price. (3) VAT/sales tax: {type:"tax", rate, included?, value?} - put it after the taxable lines; DeskCalc computes the tax from the subtotal above and recomputes it when the user corrects a line; value is the printed tax amount; included=true for gross prices ("incl. VAT"). (4) discount/surcharge in percent on the subtotal above: {type:"percent", rate, value?} - rate -3 for "3 % Rabatt", -2 for "2 % Skonto", +5 for a surcharge; value is the printed amount. A discount on a single position: give that position with its discounted amount or as a separate negative amount line. Prices per 100/1000 units: convert to a unit price or give the line total as an amount. (5) MIXED TAX RATES (e.g. 20 % and 10 % on one invoice): a tax line always applies to the whole subtotal above, so put the positions of each rate in their own group: {type:"group", label:"20 %"}, its positions, its tax line; then {type:"group", label:"10 %"}, ... DeskCalc adds a GT (grand total) line. If the result has gt_outdated=true (the user corrected a line, the GT line is a snapshot), call verify_numbers again with exactly the arguments in "rerun" and use that second result. (6) MANY RECEIPTS (expenses, a stack of bills): ONE call, ONE tape - one amount line per receipt (label "14.10. Hotel"), never one call per receipt. If the receipts print their VAT, ALWAYS give each receipt its own group: the gross amount, then its tax line with included=true and the PRINTED VAT as value - only then can a misprinted VAT be found (the GT is still the total of the receipts). If an expense report prints a total, pass it as expected_total. (7) PRINTED SUBTOTALS / CARRY-OVERS (bank statement, ledger over several pages, "\xDCbertrag", "Zwischensumme"): {type:"subtotal", label:"\xDCbertrag S.1", value} at that place - DeskCalc shows the running total there and the check names the first carry-over that is wrong. An opening balance is a normal amount line. (8) CROSS-FOOTING A TABLE (net, tax, gross columns): one line per row {label, value: gross, net, tax} and nothing else in that call; pass expected_total (gross column total), expected_net_total and expected_tax_total if printed (row_labels: omit - the tape uses DeskCalc's language). DeskCalc shows each row as its own block: net, tax, and the printed gross as a checkpoint. (9) FOREIGN CURRENCY: {label, foreign: 100, currency:"USD", fx_rate: 0.92, value: 92.00} - fx_rate is home currency per 1 unit; if the document quotes the inverse (1 EUR = 1.08 USD), give the printed home amount as a plain amount line and name the rate in the label. For invoices also pass expected_total (the printed amount payable). After a confirmed check, offer save_audit_record (PDF for the working papers); to reconcile two documents (invoice vs delivery note, order or payment), verify both, then call compare_verifications. If you use a figure that is NOT printed on the document (e.g. a fee from a published table, a rate you looked up), say so in the label, e.g. "(Tab. A, web)", and tell the user - the tape must not make your own assumptions look like the document.
 Numbers: plain, "." as decimal separator, negative for credits. Labels: SHORT, max ~25 characters, e.g. "Pos.1 Wandfarbe" or "14.10. Hotel" - longer labels are cut off on the tape. Title: 1-3 words; it becomes the tab name in DeskCalc.`,
     inputSchema: {
       title: external_exports.string().min(1).max(60).describe('Short tab name, e.g. "Baumarkt 10/26" or "Spesen Oktober".'),

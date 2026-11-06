@@ -5,3 +5,4 @@ debug/
 fuzz/report-*.md
 fuzz/failures-*.json
 __pycache__/
+fuzz/matrix-*
