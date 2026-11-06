@@ -21725,6 +21725,11 @@ function roundCents(v) {
   const abs = (neg2 ? -r : r).toString().padStart(3, "0");
   return (neg2 ? "-" : "") + abs.slice(0, -2) + "." + abs.slice(-2);
 }
+function positionDiscount(lineValue, discPercent) {
+  const m = (v) => v.startsWith("-") ? v.slice(1) : "-" + v;
+  const net = decimalSum([lineValue, m(mulDiv(lineValue, discPercent, "100"))]);
+  return decimalSum([roundCents(net), m(roundCents(lineValue))]);
+}
 function sameAmount(a, b) {
   return Math.abs(Number(a) - Number(b)) < 1e-6 * Math.max(1, Math.abs(Number(a)));
 }
@@ -21957,16 +21962,20 @@ function precheck(items, expectedTotal, columns = {}) {
     else if (c.item !== void 0) marks.set(c.item, m);
   }
   const neg2 = (v) => v.startsWith("-") ? v : "-" + v;
+  const flip = (v) => v.startsWith("-") ? v.slice(1) : "-" + v;
   const pos = (v) => v.replace(/^-/, "");
   const docs = items.map((it, i) => {
     const line = sim.lineOf[i] !== void 0 ? sim.lines[sim.lineOf[i]] : void 0;
     switch (it.kind) {
       case "group":
         return void 0;
-      case "amount":
+      case "amount": {
+        const q = items[i - 1];
+        if (it.discLine && q?.printed !== void 0) return roundCents(decimalSum([q.printed, flip(roundCents(q.value))]));
         return it.value;
+      }
       case "qty":
-        return it.printed ?? roundCents(it.value);
+        return it.disc !== void 0 ? roundCents(it.value) : it.printed ?? roundCents(it.value);
       case "subtotal":
         return it.printed;
       case "tax":
@@ -22017,7 +22026,7 @@ function checkDocument(sent, got, total, expectedTotal, columns = {}) {
   const abs = (x) => x.replace(/^-/, "");
   sent.forEach((s, i) => {
     if (s.kind === "qty" && s.printed !== void 0)
-      checks.push({ ...mk(`line ${i + 1} "${s.label}": ${s.qty} x ${s.price}`, s.printed, s.value), item: i });
+      checks.push(s.disc !== void 0 ? { ...mk(`line ${i + 1} "${s.label}": ${s.qty} x ${s.price} - ${s.disc} %`, s.printed, decimalSum([roundCents(s.value), s.discAmount])), item: i + 1 } : { ...mk(`line ${i + 1} "${s.label}": ${s.qty} x ${s.price}`, s.printed, s.value), item: i });
   });
   const rows = rowParts(sent, got);
   let rowDiff;
@@ -22036,7 +22045,8 @@ function checkDocument(sent, got, total, expectedTotal, columns = {}) {
   if (checks.some((c) => !c.ok && c.check.startsWith("line ")) && sentQty.length === gotQty.length) {
     const asPrinted = got.map((g) => ({ ...g }));
     gotQty.forEach(({ i }, k) => {
-      if (sentQty[k].printed !== void 0) asPrinted[i].value = sentQty[k].printed;
+      const s = sentQty[k];
+      if (s.printed !== void 0) asPrinted[i].value = s.disc !== void 0 ? decimalSum([s.printed, neg2(s.discAmount)]) : s.printed;
     });
     docModels.push(roundedModel(asPrinted), roundedModel(asPrinted, true));
   }
@@ -22618,7 +22628,7 @@ function rerunItems(sent, got) {
     return s?.printed;
   };
   const out = [];
-  let block = 0;
+  let block = 0, skipDisc = false;
   for (const g of got) {
     if (groups.length && (g.block ?? 1) !== block) {
       block = g.block ?? 1;
@@ -22634,8 +22644,18 @@ function rerunItems(sent, got) {
       const p = printedFor("percent", g.label);
       out.push({ type: "percent", rate: g.rate, label: g.label, ...p !== void 0 ? { value: p } : {} });
     } else if (g.qty !== void 0) {
-      const p = printedFor("qty", g.label);
-      out.push({ label: g.label, qty: g.qty, price: g.price, ...p !== void 0 ? { value: p } : {} });
+      const s = sent.find((x) => !used.has(x) && x.kind === "qty" && x.label === g.label);
+      if (s) used.add(s);
+      out.push({
+        label: g.label,
+        qty: g.qty,
+        price: g.price,
+        ...s?.disc !== void 0 ? { discount: s.disc } : {},
+        ...s?.printed !== void 0 ? { value: s.printed } : {}
+      });
+      if (s?.disc !== void 0) skipDisc = true;
+    } else if (skipDisc) {
+      skipDisc = false;
     } else {
       out.push({ label: g.label, value: g.value });
     }
@@ -22709,7 +22729,16 @@ function toItem(x, line) {
       if (typeof p !== "string") return p;
       printed = p;
     }
-    return { kind: "qty", label, qty, price, value: decimalMul(qty, price), printed };
+    const value2 = decimalMul(qty, price);
+    if (x.discount !== void 0 && Number(x.discount) !== 0) {
+      const d0 = num(x.discount, "discount");
+      if (typeof d0 !== "string") return d0;
+      const disc = d0.replace(/^-/, "");
+      if (!(Number(disc) > 0 && Number(disc) <= 100)) return { error: `Line ${line}: discount must be a percent between 0 and 100 (10 = 10 % off).` };
+      const discAmount = positionDiscount(value2, disc);
+      return { kind: "qty", label, qty, price, value: value2, printed, disc, discAmount };
+    }
+    return { kind: "qty", label, qty, price, value: value2, printed };
   }
   const value = num(x.value, "value");
   if (typeof value !== "string") return value;
@@ -22769,6 +22798,10 @@ async function verifyNumbers(input, hooks = {}) {
         return { status: "bad_request", message: `Line ${i + 1}: a ${it.kind} line needs the positions it applies to above it (in the same group).`, problem: { line: i + 1 } };
     } else inBlock++;
     items.push(it);
+    if (it.kind === "qty" && it.disc !== void 0) {
+      items.push({ kind: "amount", label: cleanLabel(`${de ? "Rabatt" : "Discount"} ${it.disc} % ${it.label}`), value: it.discAmount, discLine: true });
+      inBlock++;
+    }
   }
   if (items.length && inBlock === 0)
     return { status: "bad_request", message: "The last group has no positions.", problem: { line: items.length } };
@@ -22989,7 +23022,7 @@ server.registerTool(
   {
     title: "Check numbers in DeskCalc",
     description: `Show numbers as a labelled adding-machine tape in DeskCalc so the user can check every line, correct it and press Confirm. Returns the confirmed total, the lines, the user's corrections and - if you pass the printed figures - a cent-exact check of the document. Use it before you rely on a sum you extracted from receipts, statements or invoices. If the result is "pending", tell the user to finish the check in DeskCalc and call get_verification with the review_id.
-Line kinds: (1) amount: {label, value}. (2) quantity x unit price: {label, qty, price, value?} - value is the printed line total, checked against qty x price. (3) VAT/sales tax: {type:"tax", rate, included?, value?} - put it after the taxable lines; DeskCalc computes the tax from the subtotal above and recomputes it when the user corrects a line; value is the printed tax amount; included=true for gross prices ("incl. VAT"). (4) discount/surcharge in percent on the subtotal above: {type:"percent", rate, value?} - rate -3 for "3 % Rabatt", -2 for "2 % Skonto", +5 for a surcharge; value is the printed amount. A discount on a single position: give that position with its discounted amount or as a separate negative amount line. Prices per 100/1000 units: convert to a unit price or give the line total as an amount. (5) MIXED TAX RATES (e.g. 20 % and 10 % on one invoice): a tax line always applies to the whole subtotal above, so put the positions of each rate in their own group: {type:"group", label:"20 %"}, its positions, its tax line; then {type:"group", label:"10 %"}, ... DeskCalc adds a GT (grand total) line. If the result has gt_outdated=true (the user corrected a line, the GT line is a snapshot), call verify_numbers again with exactly the arguments in "rerun" and use that second result. (6) MANY RECEIPTS (expenses, a stack of bills): ONE call, ONE tape - one amount line per receipt (label "14.10. Hotel"), never one call per receipt. If the receipts print their VAT, ALWAYS give each receipt its own group: the gross amount, then its tax line with included=true and the PRINTED VAT as value - only then can a misprinted VAT be found (the GT is still the total of the receipts). If an expense report prints a total, pass it as expected_total. (7) PRINTED SUBTOTALS / CARRY-OVERS (bank statement, ledger over several pages, "\xDCbertrag", "Zwischensumme"): {type:"subtotal", label:"\xDCbertrag S.1", value} at that place - DeskCalc shows the running total there and the check names the first carry-over that is wrong. An opening balance is a normal amount line. (8) CROSS-FOOTING A TABLE (net, tax, gross columns): one line per row {label, value: gross, net, tax} and nothing else in that call; pass expected_total (gross column total), expected_net_total and expected_tax_total if printed (row_labels: omit - the tape uses DeskCalc's language). DeskCalc shows each row as its own block: net, tax, and the printed gross as a checkpoint. (9) FOREIGN CURRENCY: {label, foreign: 100, currency:"USD", fx_rate: 0.92, value: 92.00} - fx_rate is home currency per 1 unit; if the document quotes the inverse (1 EUR = 1.08 USD), give the printed home amount as a plain amount line and name the rate in the label. For invoices also pass expected_total (the printed amount payable). After a confirmed check, offer save_audit_record (PDF for the working papers); to reconcile two documents (invoice vs delivery note, order or payment), verify both, then call compare_verifications. If you use a figure that is NOT printed on the document (e.g. a fee from a published table, a rate you looked up), say so in the label, e.g. "(Tab. A, web)", and tell the user - the tape must not make your own assumptions look like the document.
+Line kinds: (1) amount: {label, value}. (2) quantity x unit price: {label, qty, price, value?} - value is the printed line total, checked against qty x price. (3) VAT/sales tax: {type:"tax", rate, included?, value?} - put it after the taxable lines; DeskCalc computes the tax from the subtotal above and recomputes it when the user corrects a line; value is the printed tax amount; included=true for gross prices ("incl. VAT"). (4) discount/surcharge in percent on the subtotal above: {type:"percent", rate, value?} - rate -3 for "3 % Rabatt", -2 for "2 % Skonto", +5 for a surcharge; value is the printed amount. A DISCOUNT ON A SINGLE POSITION ("Rabatt"/"Disc." column): {label, qty, price, discount: 10, value: printed line total} - discount in percent; DeskCalc shows qty x price and the discount below it, the check compares the printed line total. Never derive the discount from the printed total. Prices per 100/1000 units: convert to a unit price or give the line total as an amount. (5) MIXED TAX RATES (e.g. 20 % and 10 % on one invoice): a tax line always applies to the whole subtotal above, so put the positions of each rate in their own group: {type:"group", label:"20 %"}, its positions, its tax line; then {type:"group", label:"10 %"}, ... DeskCalc adds a GT (grand total) line. If the result has gt_outdated=true (the user corrected a line, the GT line is a snapshot), call verify_numbers again with exactly the arguments in "rerun" and use that second result. (6) MANY RECEIPTS (expenses, a stack of bills): ONE call, ONE tape - one amount line per receipt (label "14.10. Hotel"), never one call per receipt. If the receipts print their VAT, ALWAYS give each receipt its own group: the gross amount, then its tax line with included=true and the PRINTED VAT as value - only then can a misprinted VAT be found (the GT is still the total of the receipts). If an expense report prints a total, pass it as expected_total. (7) PRINTED SUBTOTALS / CARRY-OVERS (bank statement, ledger over several pages, "\xDCbertrag", "Zwischensumme"): {type:"subtotal", label:"\xDCbertrag S.1", value} at that place - DeskCalc shows the running total there and the check names the first carry-over that is wrong. An opening balance is a normal amount line. (8) CROSS-FOOTING A TABLE (net, tax, gross columns): one line per row {label, value: gross, net, tax} and nothing else in that call; pass expected_total (gross column total), expected_net_total and expected_tax_total if printed (row_labels: omit - the tape uses DeskCalc's language). DeskCalc shows each row as its own block: net, tax, and the printed gross as a checkpoint. (9) FOREIGN CURRENCY: {label, foreign: 100, currency:"USD", fx_rate: 0.92, value: 92.00} - fx_rate is home currency per 1 unit; if the document quotes the inverse (1 EUR = 1.08 USD), give the printed home amount as a plain amount line and name the rate in the label. For invoices also pass expected_total (the printed amount payable). After a confirmed check, offer save_audit_record (PDF for the working papers); to reconcile two documents (invoice vs delivery note, order or payment), verify both, then call compare_verifications. If you use a figure that is NOT printed on the document (e.g. a fee from a published table, a rate you looked up), say so in the label, e.g. "(Tab. A, web)", and tell the user - the tape must not make your own assumptions look like the document.
 Numbers: plain, "." as decimal separator, negative for credits. Labels: SHORT, max ~25 characters, e.g. "Pos.1 Wandfarbe" or "14.10. Hotel" - longer labels are cut off on the tape. Title: 1-3 words; it becomes the tab name in DeskCalc.`,
     inputSchema: {
       title: external_exports.string().min(1).max(60).describe('Short tab name, e.g. "Baumarkt 10/26" or "Spesen Oktober".'),
@@ -22999,6 +23032,7 @@ Numbers: plain, "." as decimal separator, negative for credits. Labels: SHORT, m
         value: external_exports.union([external_exports.number(), external_exports.string()]).optional().describe('Amount. With qty/price: the printed line total (for the check). With type "tax": the printed tax amount (for the check).'),
         qty: external_exports.union([external_exports.number(), external_exports.string()]).optional().describe("Quantity (with price)."),
         price: external_exports.union([external_exports.number(), external_exports.string()]).optional().describe("Unit price (with qty)."),
+        discount: external_exports.union([external_exports.number(), external_exports.string()]).optional().describe('With qty/price: discount on this position in percent, e.g. 10 for "10 % Rabatt" (value = printed line total after the discount).'),
         rate: external_exports.union([external_exports.number(), external_exports.string()]).optional().describe('Percent: tax rate (type "tax", e.g. 19) or discount/surcharge (type "percent", e.g. -3 for 3 % discount).'),
         included: external_exports.boolean().optional().describe("Tax is included in the amounts above (gross prices). Default false (tax added on top)."),
         net: external_exports.union([external_exports.number(), external_exports.string()]).optional().describe("Cross-footing a table row: printed net of the row (value = printed gross, tax = printed tax)."),
